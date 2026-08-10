@@ -6,7 +6,7 @@
 /*   By: erpascua <erpascua@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/07/06 05:37:38 by fmotte            #+#    #+#             */
-/*   Updated: 2026/08/06 19:33:12 by erpascua         ###   ########.fr       */
+/*   Updated: 2026/08/10 04:36:59 by erpascua         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -22,6 +22,8 @@
 #include "utilsParsing.hpp"
 #include "utilsRequest.hpp"
 
+#include <algorithm>
+#include <cctype>
 #include <dirent.h>
 
 // =====================
@@ -92,6 +94,11 @@ std::string HandlePath::selectRoot(Location *location)
     else
         pathRoot = getHttpRequest()->getRequestContext()->getServer()->getRoot();
 
+    // A server whose content is entirely defined by locations is valid, but an
+    // unmatched URI must never be resolved against the process cwd or host /.
+    if (pathRoot.empty())
+        throw std::runtime_error("404");
+
     return pathRoot;
 }
 
@@ -129,17 +136,26 @@ bool HandlePath::isRequestForLocationRoot(const std::string &locationName)
     return uri == loc;
 }
 
+std::string HandlePath::createPathPost(Location *location, const std::string &base)
+{
+    std::string uploadStore = location->getUploadStore();
+
+    if (isRequestForLocationRoot(location->getName()))
+        return (uploadStore != "") ? uploadStore : base;
+
+    if (uploadStore == "")
+        throw std::runtime_error("404");
+
+    return uploadStore;
+}
+
 std::string HandlePath::createPathWithLocation(Location *location)
 {
     std::string base = mapUriToLocation(location);
     HttpMethod method = getHttpRequest()->getHeader()->getMethod();
 
     if (method == POST)
-    {
-        if (!isRequestForLocationRoot(location->getName()))
-            throw std::runtime_error("404");
-        return base;
-    }
+        return createPathPost(location, base);
 
     // The URI points straight at an existing file
     if (isFinishByFile(base))
@@ -228,7 +244,7 @@ std::string HandlePath::createPathWithServer()
     throw std::runtime_error("404");
 }
 
-void HandlePath::listContentFolder(const std::string &path, std::string &folderContent)
+void HandlePath::listContentFolder(const std::string &path, std::vector<std::string> &entries)
 {
     DIR *dir;
     struct dirent *ent;
@@ -241,35 +257,87 @@ void HandlePath::listContentFolder(const std::string &path, std::string &folderC
 
     while ((ent = readdir(dir)) != NULL)
     {
-        folderContent.append(ent->d_name);
+        std::string name = ent->d_name;
+        if (name == ".")
+            continue;
+
         if (ent->d_type == DT_DIR)
-            folderContent.append("/");
-        folderContent.append("\n");
+            name += "/";
+
+        entries.push_back(name);
     }
     closedir(dir);
+
+    std::sort(entries.begin(), entries.end());
+}
+
+static std::string escapeHtml(const std::string &text)
+{
+    std::string escaped;
+
+    for (std::string::size_type i = 0; i < text.size(); ++i)
+    {
+        if (text[i] == '&')
+            escaped += "&amp;";
+        else if (text[i] == '<')
+            escaped += "&lt;";
+        else if (text[i] == '>')
+            escaped += "&gt;";
+        else if (text[i] == '"')
+            escaped += "&quot;";
+        else if (text[i] == '\'')
+            escaped += "&#39;";
+        else
+            escaped += text[i];
+    }
+    return escaped;
+}
+
+static std::string encodeUriPath(const std::string &path)
+{
+    const std::string unreserved = "-_.~/";
+    const char *hexDigits = "0123456789ABCDEF";
+    std::string encoded;
+
+    for (std::string::size_type i = 0; i < path.size(); ++i)
+    {
+        unsigned char c = static_cast<unsigned char>(path[i]);
+
+        if (std::isalnum(c) || unreserved.find(static_cast<char>(c)) != std::string::npos)
+            encoded += static_cast<char>(c);
+        else
+        {
+            encoded += '%';
+            encoded += hexDigits[(c >> 4) & 0x0F];
+            encoded += hexDigits[c & 0x0F];
+        }
+    }
+    return encoded;
 }
 
 std::string HandlePath::createContentAutoIndex(const std::string &path)
 {
-    size_t pos = 0;
-    std::string token;
-    std::string payload;
-    std::string delimiter = "\n";
+    std::string uri = requestUriPath();
+    if (uri.empty() || uri[uri.size() - 1] != '/')
+        uri += '/';
 
-    std::string folderContent;
-    listContentFolder(path, folderContent);
+    std::vector<std::string> entries;
+    listContentFolder(path, entries);
 
-    payload += "<html><head><title>Index of /files/</title></head><body><h1><ul>";
+    std::string title = escapeHtml(uri);
+    std::string payload = "<!DOCTYPE html>\n<html><head><meta charset=\"UTF-8\"><title>Index of ";
+    payload += title;
+    payload += "</title></head><body><h1>Index of ";
+    payload += title;
+    payload += "</h1><ul>";
 
-    while ((pos = folderContent.find(delimiter)) != std::string::npos)
+    for (size_t i = 0; i < entries.size(); ++i)
     {
-        token = folderContent.substr(0, pos);
         payload += "<li><a href=\"";
-        payload += token;
+        payload += escapeHtml(encodeUriPath(uri + entries[i]));
         payload += "\">";
-        payload += token;
+        payload += escapeHtml(entries[i]);
         payload += "</a></li>";
-        folderContent.erase(0, pos + delimiter.length());
     }
 
     payload += "</ul></body></html>";

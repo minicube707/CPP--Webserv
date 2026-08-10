@@ -3,14 +3,17 @@
 /*                                                        :::      ::::::::   */
 /*   utilsResponse.cpp                                  :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: fmotte <fmotte@student.42.fr>              +#+  +:+       +#+        */
+/*   By: erpascua <erpascua@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/05/13 19:11:36 by erpascua          #+#    #+#             */
-/*   Updated: 2026/05/26 16:46:12 by fmotte           ###   ########.fr       */
+/*   Updated: 2026/08/10 03:56:07 by erpascua         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "utilsResponse.hpp"
+
+#include <cctype>
+#include <cstddef>
 
 // =====================
 // == 	   Utils	  ==
@@ -26,6 +29,10 @@ std::string httpStatusToString(int code)
         return "Continue";
     case 101:
         return "Switching Protocols";
+    case 102:
+        return "Processing";
+    case 103:
+        return "Early Hints";
 
     // 2xx Success
     case 200:
@@ -34,10 +41,20 @@ std::string httpStatusToString(int code)
         return "Created";
     case 202:
         return "Accepted";
+    case 203:
+        return "Non-Authoritative Information";
     case 204:
         return "No Content";
+    case 205:
+        return "Reset Content";
     case 206:
         return "Partial Content";
+    case 207:
+        return "Multi-Status";
+    case 208:
+        return "Already Reported";
+    case 226:
+        return "IM Used";
 
     // 3xx Redirection
     case 300:
@@ -60,12 +77,18 @@ std::string httpStatusToString(int code)
         return "Bad Request";
     case 401:
         return "Unauthorized";
+    case 402:
+        return "Payment Required";
     case 403:
         return "Forbidden";
     case 404:
         return "Not Found";
     case 405:
         return "Method Not Allowed";
+    case 406:
+        return "Not Acceptable";
+    case 407:
+        return "Proxy Authentication Required";
     case 408:
         return "Request Timeout";
     case 409:
@@ -74,14 +97,40 @@ std::string httpStatusToString(int code)
         return "Gone";
     case 411:
         return "Length Required";
+    case 412:
+        return "Precondition Failed";
     case 413:
         return "Payload Too Large";
     case 414:
         return "URI Too Long";
     case 415:
         return "Unsupported Media Type";
+    case 416:
+        return "Range Not Satisfiable";
+    case 417:
+        return "Expectation Failed";
+    case 418:
+        return "I'm a Teapot";
+    case 421:
+        return "Misdirected Request";
+    case 422:
+        return "Unprocessable Content";
+    case 423:
+        return "Locked";
+    case 424:
+        return "Failed Dependency";
+    case 425:
+        return "Too Early";
+    case 426:
+        return "Upgrade Required";
+    case 428:
+        return "Precondition Required";
     case 429:
         return "Too Many Requests";
+    case 431:
+        return "Request Header Fields Too Large";
+    case 451:
+        return "Unavailable For Legal Reasons";
 
     // 5xx Server Error
     case 500:
@@ -96,8 +145,53 @@ std::string httpStatusToString(int code)
         return "Gateway Timeout";
     case 505:
         return "HTTP Version Not Supported";
+    case 506:
+        return "Variant Also Negotiates";
+    case 507:
+        return "Insufficient Storage";
+    case 508:
+        return "Loop Detected";
+    case 510:
+        return "Not Extended";
+    case 511:
+        return "Network Authentication Required";
 
     default:
         return "Unknown";
     }
+}
+
+struct MimeEntry
+{
+    const char *extension;
+    const char *type;
+};
+
+std::string mimeTypeFromPath(const std::string &path)
+{
+    static const MimeEntry mimeTable[] = {
+        {".html", "text/html"},         {".htm", "text/html"},        {".css", "text/css"},
+        {".js", "application/javascript"}, {".json", "application/json"}, {".xml", "application/xml"},
+        {".txt", "text/plain"},         {".csv", "text/csv"},         {".png", "image/png"},
+        {".jpg", "image/jpeg"},         {".jpeg", "image/jpeg"},      {".gif", "image/gif"},
+        {".svg", "image/svg+xml"},      {".ico", "image/x-icon"},     {".webp", "image/webp"},
+        {".bmp", "image/bmp"},          {".pdf", "application/pdf"},  {".zip", "application/zip"},
+        {".gz", "application/gzip"},    {".tar", "application/x-tar"}, {".mp3", "audio/mpeg"},
+        {".mp4", "video/mp4"},          {".webm", "video/webm"},      {".woff", "font/woff"},
+        {".woff2", "font/woff2"},       {".ttf", "font/ttf"}};
+
+    std::string::size_type dot = path.find_last_of('.');
+    if (dot == std::string::npos)
+        return "application/octet-stream";
+
+    std::string extension = path.substr(dot);
+    for (std::string::size_type i = 0; i < extension.size(); ++i)
+        extension[i] = static_cast<char>(std::tolower(static_cast<unsigned char>(extension[i])));
+
+    const size_t mimeTableSize = sizeof(mimeTable) / sizeof(mimeTable[0]);
+    for (size_t i = 0; i < mimeTableSize; ++i)
+        if (extension == mimeTable[i].extension)
+            return mimeTable[i].type;
+
+    return "application/octet-stream";
 }

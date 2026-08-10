@@ -36,6 +36,7 @@ class ErrorResponse : public AResponse
     // =====================
     std::string makeErrorPage();
     std::string builtErrorPage();
+    std::string errorPageStyle();
     std::string getRightPageError();
 
     void applyResponse();

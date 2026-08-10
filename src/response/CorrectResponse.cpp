@@ -6,7 +6,7 @@
 /*   By: erpascua <erpascua@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/05/29 15:44:05 by fmotte            #+#    #+#             */
-/*   Updated: 2026/07/21 19:52:55 by erpascua         ###   ########.fr       */
+/*   Updated: 2026/08/10 03:54:51 by erpascua         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -55,11 +55,12 @@ void CorrectResponse::applyResponse()
 
     std::string statusLine = makeStatusLine();
     makeHeader();
-    std::string body = response->getARequest()->getResponseContext()->getPayload();
-    addHeaderContent("Content-Length", intToString(static_cast<int>(body.size())));
+    applyCgiHeaders();
 
-    if (containsHtmlTags(body))
-        addHeaderContent("content-type", "text/html");
+    std::string body = response->getARequest()->getResponseContext()->getPayload();
+
+    addHeaderContent("Content-Length", sizeToString(body.size()));
+    applyContentType(body);
 
     response->addResponseContent(statusLine);
     response->addResponseContent(headerToString());

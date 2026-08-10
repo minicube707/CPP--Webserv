@@ -15,3 +15,4 @@
 #include <string>
 
 std::string httpStatusToString(int code);
+std::string mimeTypeFromPath(const std::string &path);

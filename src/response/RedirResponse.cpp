@@ -6,7 +6,7 @@
 /*   By: erpascua <erpascua@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/05/29 14:31:47 by fmotte            #+#    #+#             */
-/*   Updated: 2026/07/28 02:59:17 by erpascua         ###   ########.fr       */
+/*   Updated: 2026/08/10 03:53:16 by erpascua         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -34,7 +34,10 @@ void RedirResponse::applyResponse()
 
     std::string statusLine = makeStatusLine();
     makeHeader();
-    addHeaderContent("Location", response->getARequest()->getResponseContext()->getPayload());
+    applyCgiHeaders();
+
+    if (!hasHeader("Location"))
+        addHeaderContent("Location", response->getARequest()->getResponseContext()->getPayload());
 
     addHeaderContent("Content-Length", "0");
 

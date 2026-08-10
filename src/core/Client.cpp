@@ -6,7 +6,7 @@
 /*   By: erpascua <erpascua@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/04/14 14:43:09 by fmotte            #+#    #+#             */
-/*   Updated: 2026/08/06 18:59:48 by erpascua         ###   ########.fr       */
+/*   Updated: 2026/08/10 04:32:24 by erpascua         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -35,33 +35,6 @@ Client::~Client()
     closeClientFd();
     delete getARequest();
     delete getEventData();
-}
-
-Client::Client(const Client &other)
-    : _client_fd(-1), _server_fd(-1), _server(0), _webserv(0), _ARequest(NULL), _typeResquest(STATIC),
-      _contentRequest(""), _sessionId(""), _sendBuffer(""), _sendOffset(0), _closeAfterSend(false),
-      _CGIProcessing(false), _pendingDelete(false), _peerClosed(false), _eventData(NULL)
-{
-    *this = other;
-}
-
-Client &Client::operator=(const Client &other)
-{
-    this->_client_fd = other._client_fd;
-    this->_server_fd = other._server_fd;
-    this->_server = other._server;
-    this->_webserv = other._webserv;
-    this->_typeResquest = other._typeResquest;
-    this->_contentRequest = other._contentRequest;
-    this->_sessionId = other._sessionId;
-    this->_sendBuffer = other._sendBuffer;
-    this->_sendOffset = other._sendOffset;
-    this->_closeAfterSend = other._closeAfterSend;
-    this->_CGIProcessing = other._CGIProcessing;
-    this->_pendingDelete = other._pendingDelete;
-    this->_peerClosed = other._peerClosed;
-
-    return (*this);
 }
 
 const std::string Client::_listCGI[2] = {".py", ".php"};
@@ -273,12 +246,21 @@ EventData *Client::getEventData(void) const
 // =====================
 void Client::initialisationClient()
 {
-    delete getARequest();
-    ARequest *arequest = new ARequest(); // check if fail
+    ARequest *arequest = new ARequest();
+    try
+    {
+        arequest->initialisationARequest();
+        arequest->getRequestContext()->setClient(this);
+    }
+    catch (...)
+    {
+        delete arequest;
+        throw;
+    }
 
+    delete getARequest();
     setARequest(arequest);
-    getARequest()->initialisationARequest();
-    getARequest()->getRequestContext()->setClient(this);
+
     getARequest()->getRequestContext()->initialisationRequestContext();
 }
 
@@ -291,7 +273,7 @@ void Client::selectTypeRequest()
     if (pos != std::string::npos)
         extension = uri.substr(pos);
 
-    if (extension.empty() || std::find(_listCGI, _listCGI + 2, extension) == _listCGI + 2)
+    if (!getARequest()->getRequestContext()->isCgiExtension(extension))
     {
         setTypeRequest(STATIC);
         ARequest *arequest = getARequest();

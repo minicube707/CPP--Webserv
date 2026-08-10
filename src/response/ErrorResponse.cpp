@@ -34,7 +34,6 @@ ErrorResponse::~ErrorResponse()
 // == 	  Methods	  ==
 // =====================
 
-/
 std::string ErrorResponse::errorPageStyle()
 {
     bool serverError = (getStatusCode() >= 500);

@@ -3,10 +3,10 @@
 /*                                                        :::      ::::::::   */
 /*   Client.hpp                                         :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: fmotte <fmotte@student.42.fr>              +#+  +:+       +#+        */
+/*   By: erpascua <erpascua@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/04/14 14:43:11 by fmotte            #+#    #+#             */
-/*   Updated: 2026/07/22 13:22:04 by fmotte           ###   ########.fr       */
+/*   Updated: 2026/08/10 04:31:51 by erpascua         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -41,14 +41,15 @@ class Client
     bool _peerClosed;
     EventData *_eventData;
 
+    Client(const Client &other);
+    Client &operator=(const Client &other);
+
   public:
     // =====================
     // == Canonical Form  ==
     // =====================
     Client();
     ~Client();
-    Client(const Client &other);
-    Client &operator=(const Client &other);
 
     // =====================
     // == Getter & Setter ==

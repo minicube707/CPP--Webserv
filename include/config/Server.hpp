@@ -3,10 +3,10 @@
 /*                                                        :::      ::::::::   */
 /*   Server.hpp                                         :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: fmotte <fmotte@student.42.fr>              +#+  +:+       +#+        */
+/*   By: erpascua <erpascua@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/04/04 14:43:21 by fmotte            #+#    #+#             */
-/*   Updated: 2026/07/22 15:50:06 by fmotte           ###   ########.fr       */
+/*   Updated: 2026/08/10 04:09:46 by erpascua         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -35,14 +35,17 @@ class Server
     std::vector<Location> _locations;
     std::string _root;
     std::vector<std::string> _index_files;
-    std::vector<Server> _servers;
 
+    std::map<std::string, std::string> _cgi_pass;
     bool _auto_index;
     std::vector<HttpErrorPage> _error_page;
     unsigned int _client_max_body_size;
     HttpReturn _ret;
     std::set<EventData *> _setEventData;
     Webserv *_webserv;
+
+    Server(const Server &other);
+    Server &operator=(const Server &other);
 
   public:
     // =====================
@@ -52,8 +55,6 @@ class Server
     Server();
     Server(Webserv *webserv);
     ~Server();
-    Server(const Server &other);
-    Server &operator=(const Server &other);
 
     // =====================
     // == Getter & Setter ==
@@ -79,6 +80,11 @@ class Server
     void addIndex(std::string index);
     std::string getIndex(size_t i);
 
+    // CGI-PASS
+    void addCgiPass(const std::string &extension, const std::string &interpreter);
+    std::string getCgiPass(const std::string &extension) const;
+    bool hasCgiPass(const std::string &extension) const;
+
     // AUTO-INDEX
     void setAutoIndex(bool auto_index);
     bool getAutoIndex(void);
@@ -96,6 +102,7 @@ class Server
     HttpReturn *getReturn(void);
 
     void addEventData(EventData *eventData);
+    void removeEventData(EventData *eventData);
     std::set<EventData *> getEventData(void) const;
 
     void setWebserv(Webserv *webserv);
@@ -114,6 +121,7 @@ class Server
     void initializeRoot(std::vector<std::string> &tokens);
 
     void initializeIndexFiles(std::vector<std::string> &tokens);
+    void initializeCgiPass(std::vector<std::string> &tokens);
     void initializeAutoIndex(std::vector<std::string> &tokens);
 
     void initializeErrorPage(std::vector<std::string> &tokens);

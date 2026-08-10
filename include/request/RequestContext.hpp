@@ -12,6 +12,8 @@
 
 #pragma once
 
+#include <string>
+
 class Server;
 class HttpRequest;
 class Client;
@@ -58,6 +60,9 @@ class RequestContext
     // == 	  Member	  ==
     // =====================
     void initialisationRequestContext();
+
+    bool isCgiExtension(const std::string &extension) const;
+    std::string resolveCgiInterpreter(const std::string &extension) const;
 
     void linkToServer(void);
     Location *findLocation(void);

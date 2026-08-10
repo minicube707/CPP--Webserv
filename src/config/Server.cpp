@@ -17,13 +17,15 @@
 // =====================
 
 Server::Server()
-    : _listens(0), _name_servers(0), _locations(0), _root(""), _index_files(0), _auto_index(false), _error_page(0),
+    : _listens(0), _name_servers(0), _locations(0), _root(""), _index_files(0), _cgi_pass(), _auto_index(false),
+      _error_page(0),
       _client_max_body_size(0), _ret(HttpReturn()), _webserv(NULL)
 {
 }
 
 Server::Server(Webserv *webserv)
-    : _listens(0), _name_servers(0), _locations(0), _root(""), _index_files(0), _auto_index(false), _error_page(0),
+    : _listens(0), _name_servers(0), _locations(0), _root(""), _index_files(0), _cgi_pass(), _auto_index(false),
+      _error_page(0),
       _client_max_body_size(0), _ret(HttpReturn()), _webserv(webserv)
 {
 }
@@ -36,33 +38,10 @@ Server::~Server()
     for (it = _setEventData.begin(); it != _setEventData.end(); it++)
     {
         eventData = *it;
-        if (getWebserv() != NULL)
+        if (getWebserv() != NULL && getWebserv()->getEpollFd() >= 0)
             epoll_ctl(getWebserv()->getEpollFd(), EPOLL_CTL_DEL, eventData->fd, NULL);
         delete eventData;
     }
-}
-
-Server::Server(const Server &other) : _webserv(NULL)
-{
-    *this = other;
-}
-
-Server &Server::operator=(const Server &other)
-{
-    this->_listens = other._listens;
-    this->_name_servers = other._name_servers;
-    this->_locations = other._locations;
-    this->_root = other._root;
-    this->_index_files = other._index_files;
-    this->_servers = other._servers;
-    this->_auto_index = other._auto_index;
-    this->_error_page = other._error_page;
-    this->_client_max_body_size = other._client_max_body_size;
-    this->_ret = other._ret;
-    this->_webserv = other._webserv;
-    _setEventData = other._setEventData;
-
-    return (*this);
 }
 
 // =====================
@@ -105,6 +84,11 @@ Listen *Server::getListen(size_t i)
 // LOCATION
 void Server::addLocation(Location &location)
 {
+    for (size_t i = 0; i < _locations.size(); ++i)
+    {
+        if (_locations[i].getName() == location.getName())
+            throw ExecptionDuplicateElement("location " + location.getName());
+    }
     _locations.push_back(location);
 }
 Location *Server::getLocation(size_t i)
@@ -136,6 +120,24 @@ std::string Server::getIndex(size_t i)
         return _index_files[i];
     else
         return "";
+}
+
+// CGI-PASS
+void Server::addCgiPass(const std::string &extension, const std::string &interpreter)
+{
+    _cgi_pass[extension] = interpreter;
+}
+
+std::string Server::getCgiPass(const std::string &extension) const
+{
+    std::map<std::string, std::string>::const_iterator it = _cgi_pass.find(extension);
+
+    return (it == _cgi_pass.end()) ? "" : it->second;
+}
+
+bool Server::hasCgiPass(const std::string &extension) const
+{
+    return (_cgi_pass.find(extension) != _cgi_pass.end());
 }
 
 // AUTO-INDEX
@@ -190,6 +192,11 @@ void Server::addEventData(EventData *eventData)
     _setEventData.insert(eventData);
 }
 
+void Server::removeEventData(EventData *eventData)
+{
+    _setEventData.erase(eventData);
+}
+
 std::set<EventData *> Server::getEventData(void) const
 {
     return _setEventData;
@@ -219,7 +226,8 @@ void Server::initializeServer(std::vector<std::string> &tokens)
     if (tokens.empty())
         throw ExecptionMissBrace();
 
-    tokens.erase(tokens.begin());
+    if (popToken(tokens) != "server")
+        throw ExecptionWrongArgument("expected server");
 
     if (tokens.empty())
         throw ExecptionMissBrace();
@@ -242,6 +250,7 @@ void Server::initializeServer(std::vector<std::string> &tokens)
         initializeLocation(tokens);
         initializeRoot(tokens);
         initializeIndexFiles(tokens);
+        initializeCgiPass(tokens);
         initializeAutoIndex(tokens);
         initializeErrorPage(tokens);
         initializeClientMaxBodySize(tokens);
@@ -261,27 +270,27 @@ void Server::initializeCheck()
 {
     if (_listens.size() == 0)
         throw ExecptionMissElement("listen");
-
-    if (_name_servers.size() == 0)
-        throw ExecptionMissElement("server_name");
-
-    if (_root == "")
-        throw ExecptionMissElement("root");
 }
 
 void Server::initializeNameServers(std::vector<std::string> &tokens)
 {
-    if (tokens[0] == "server_name")
-    {
-        tokens.erase(tokens.begin());
+    if (frontToken(tokens) != "server_name")
+        return;
 
-        while (tokens[0] != ";")
-        {
-            addNameServer(tokens[0]);
-            tokens.erase(tokens.begin());
-        }
-        tokens.erase(tokens.begin());
+    popToken(tokens);
+
+    if (frontToken(tokens) == ";")
+        throw ExecptionWrongArgument("server_name");
+
+    while (frontToken(tokens) != ";")
+    {
+        std::string name = popToken(tokens);
+        if (name == "{" || name == "}")
+            throw ExecptionWrongArgument(name);
+        addNameServer(toLowerString(name));
     }
+
+    popToken(tokens);
 }
 
 void Server::initializeListens(std::vector<std::string> &tokens)
@@ -294,72 +303,80 @@ void Server::initializeListens(std::vector<std::string> &tokens)
     listenAddr.ip = DEFAULT_IP;
     listenAddr.port = DEFAULT_PORT;
 
-    if (tokens[0] == "listen")
+    if (frontToken(tokens) != "listen")
+        return;
+
+    popToken(tokens);
+
+    if (frontToken(tokens) == ";")
     {
-        tokens.erase(tokens.begin());
-
-        if (tokens[0] == ";")
-        {
-            tokens.erase(tokens.begin());
-            addListen(listenAddr);
-            return;
-        }
-        if (countOccurrences(tokens[0], sep) > 1)
-            throw ExecptionWrongArgument(tokens[0]);
-
-        std::stringstream iss(tokens[0]);
-        tokens.erase(tokens.begin());
-
-        while (getline(iss, sub_string, sep))
-        {
-            if (countOccurrences(sub_string, '.') == 3)
-                listenAddr.ip = sub_string;
-            else
-            {
-                std::istringstream convert(sub_string);
-                convert >> listenAddr.port;
-
-                if (convert.fail() || !convert.eof())
-                    throw ExecptionFailConvertion(sub_string);
-            }
-        }
-
-        if (tokens[0] != ";")
-            throw ExecptionMissSemiColon();
-
-        tokens.erase(tokens.begin());
+        popToken(tokens);
         addListen(listenAddr);
+        return;
     }
+
+    std::string address = popToken(tokens);
+    if (countOccurrences(address, sep) > 1)
+        throw ExecptionWrongArgument(address);
+
+    std::string::size_type colon = address.find(sep);
+    if (colon != std::string::npos)
+    {
+        listenAddr.ip = address.substr(0, colon);
+        sub_string = address.substr(colon + 1);
+        if (listenAddr.ip.empty() || sub_string.empty())
+            throw ExecptionWrongArgument(address);
+    }
+    else if (countOccurrences(address, '.') == 3)
+        listenAddr.ip = address;
+    else
+        sub_string = address;
+
+    if (!sub_string.empty())
+    {
+        std::istringstream convert(sub_string);
+        convert >> listenAddr.port;
+        if (convert.fail() || !convert.eof() || listenAddr.port == 0 || listenAddr.port > 65535)
+            throw ExecptionFailConvertion(sub_string);
+    }
+
+    if (popToken(tokens) != ";")
+        throw ExecptionMissSemiColon();
+
+    addListen(listenAddr);
 }
 
 void Server::initializeLocation(std::vector<std::string> &tokens)
 {
-    if (tokens[0] == "location")
-    {
-        tokens.erase(tokens.begin());
+    if (frontToken(tokens) != "location")
+        return;
 
-        Location location;
-        location.initializeLocation(tokens);
-        addLocation(location);
-    }
+    popToken(tokens);
+
+    Location location;
+    location.initializeLocation(tokens);
+    addLocation(location);
 }
 
 void Server::initializeIndexFiles(std::vector<std::string> &tokens)
 {
-    if (tokens[0] == "index")
+    if (frontToken(tokens) != "index")
+        return;
+
+    popToken(tokens);
+
+    if (frontToken(tokens) == ";")
+        throw ExecptionWrongArgument("index");
+
+    while (frontToken(tokens) != ";")
     {
-        tokens.erase(tokens.begin());
-        while (tokens[0] != ";")
-        {
-            addIndex(tokens[0]);
-            tokens.erase(tokens.begin());
-        }
-
-        if (tokens[0] != ";")
-            throw ExecptionMissSemiColon();
-
-        tokens.erase(tokens.begin());
+        std::string index = popToken(tokens);
+        if (index == "{" || index == "}")
+            throw ExecptionWrongArgument(index);
+        addIndex(index);
     }
+
+    popToken(tokens);
 }
 
 void Server::initializeRoot(std::vector<std::string> &tokens)
@@ -367,6 +384,17 @@ void Server::initializeRoot(std::vector<std::string> &tokens)
     std::string root = parseRootDirective(tokens);
     if (root != "")
         setRoot(root);
+}
+
+void Server::initializeCgiPass(std::vector<std::string> &tokens)
+{
+    std::string extension;
+    std::string interpreter;
+
+    if (!parseCgiPassDirective(tokens, extension, interpreter))
+        return;
+
+    addCgiPass(extension, interpreter);
 }
 
 void Server::initializeAutoIndex(std::vector<std::string> &tokens)

@@ -12,9 +12,13 @@
 
 #include "DeleteMethod.hpp"
 
+#include "ARequest.hpp"
 #include "HandlePath.hpp"
 #include "HttpRequest.hpp"
+#include "RequestContext.hpp"
+#include "ResponseContext.hpp"
 
+#include <cstdio>
 #include <sys/stat.h>
 
 // =====================
@@ -63,5 +67,6 @@ std::string DeleteMethod::applyMethod(Location *location)
     if (std::remove(path.c_str()) != 0)
         throw std::runtime_error("500");
 
+    getHttpRequest()->getRequestContext()->getARequest()->getResponseContext()->setStatusCode(204);
     return "";
 }

@@ -38,4 +38,8 @@ class PostMethod : public AMethod
     // == 	  Member	  ==
     // =====================
     std::string applyMethod(Location *location);
+
+    std::string uriFileName(Location *location);
+    std::string requestContentType();
+    void writeUploadedFile(const std::string &path, const std::string &content);
 };

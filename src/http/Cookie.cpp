@@ -6,7 +6,7 @@
 /*   By: erpascua <erpascua@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/06/29 01:49:53 by erpascua          #+#    #+#             */
-/*   Updated: 2026/06/30 19:18:46 by erpascua         ###   ########.fr       */
+/*   Updated: 2026/08/10 04:38:31 by erpascua         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -14,6 +14,7 @@
 #include "utilsDuplicate.hpp"
 
 #include <ctime>
+#include <iomanip>
 
 // =====================
 // ==       OCF       ==
@@ -134,11 +135,29 @@ CookieMap parseCookieHeader(const std::string &cookieHeader)
     return (cookies);
 }
 
+// XOR added to deal with already used values and generate unique ID in hex
 std::string generateSessionId(void)
 {
+    const size_t sessionIdBytes = 16;
+    static unsigned long state = 0;
     static unsigned long counter = 0;
     std::ostringstream id;
 
-    id << std::hex << static_cast<unsigned long>(time(NULL)) << "-" << counter++;
+    unsigned long seed = static_cast<unsigned long>(getCurrentTime()) ^ (++counter * 2654435761UL) ^
+                         reinterpret_cast<unsigned long>(&id);
+
+    state ^= seed;
+    if (state == 0)
+        state = 88172645463325252UL;
+
+    id << std::hex << std::setfill('0');
+    for (size_t i = 0; i < sessionIdBytes; ++i)
+    {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        id << std::setw(2) << static_cast<unsigned int>(state & 0xFF);
+    }
+
     return (id.str());
 }

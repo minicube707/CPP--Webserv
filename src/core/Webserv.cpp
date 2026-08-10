@@ -6,7 +6,7 @@
 /*   By: erpascua <erpascua@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/04/11 17:09:17 by fmotte            #+#    #+#             */
-/*   Updated: 2026/08/06 19:39:46 by erpascua         ###   ########.fr       */
+/*   Updated: 2026/08/10 04:28:07 by erpascua         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -27,6 +27,7 @@
 #include "execption.hpp"
 #include "utilsConnection.hpp"
 #include "utilsRequest.hpp"
+#include "utilsResponse.hpp"
 
 #include <cstring>
 #include <sstream>
@@ -36,31 +37,13 @@
 // == Canonical Form  ==
 // =====================
 
-Webserv::Webserv() : _vectorServer(0), _vectorClient(0), _webserEpoll(-1)
+Webserv::Webserv() : _vectorServer(0), _vectorClient(0), _webserEpoll(-1), _lastTimeoutCheck(0), _lastSessionCleanup(0)
 {
 }
 
 Webserv::~Webserv()
 {
-}
-
-Webserv::Webserv(const Webserv &other)
-{
-    *this = other;
-}
-
-Webserv &Webserv::operator=(const Webserv &other)
-{
-    if (this != &other)
-    {
-        _vectorServer = other._vectorServer;
-        _vectorClient = other._vectorClient;
-        _mapFdToServer = other._mapFdToServer;
-        _sessions = other._sessions;
-        _webserEpoll = other._webserEpoll;
-        _setEventData = other._setEventData;
-    }
-    return (*this);
+    closeConnection();
 }
 
 // =====================
@@ -102,9 +85,39 @@ int Webserv::touchSession(const std::string &sessionId)
     return ++session.visits;
 }
 
+
+void Webserv::dropOldestSessions(void)
+{
+    std::vector<time_t> seen;
+
+    seen.reserve(_sessions.size());
+
+    std::map<std::string, SessionInfo>::iterator it = _sessions.begin();
+    for (; it != _sessions.end(); ++it)
+        seen.push_back(it->second.lastSeen);
+
+    std::sort(seen.begin(), seen.end());
+    time_t cutoff = seen[seen.size() / 2];
+
+    it = _sessions.begin();
+    while (it != _sessions.end())
+    {
+        if (it->second.lastSeen <= cutoff)
+            _sessions.erase(it++); // post-increment keeps a valid iterator (C++98)
+        else
+            ++it;
+    }
+}
+
+
 void Webserv::cleanupSessions(void)
 {
     time_t now = time(NULL);
+
+    if (now - _lastSessionCleanup < SESSION_CLEANUP_INTERVAL && _sessions.size() < MAX_SESSIONS)
+        return;
+
+    _lastSessionCleanup = now;
 
     std::map<std::string, SessionInfo>::iterator it = _sessions.begin();
     while (it != _sessions.end())
@@ -114,6 +127,9 @@ void Webserv::cleanupSessions(void)
         else
             ++it;
     }
+
+    if (_sessions.size() >= MAX_SESSIONS)
+        dropOldestSessions();
 }
 
 std::set<EventData *> Webserv::getSetEventData(void) const
@@ -138,22 +154,38 @@ bool Webserv::initializeWebserv(std::vector<std::string> &tokens)
     return splitIntoServers(tokens);
 }
 
+void Webserv::clearServers(void)
+{
+    for (std::vector<Server *>::iterator it = _vectorServer.begin(); it != _vectorServer.end(); ++it)
+        delete *it;
+    _vectorServer.clear();
+}
+
 bool Webserv::splitIntoServers(std::vector<std::string> &tokens)
 {
-    _vectorServer.clear();
+    clearServers();
 
     try
     {
         while (!tokens.empty())
         {
             Server *server = new Server(this);
-            _vectorServer.push_back(server);
-            server->initializeServer(tokens);
-            server->initializeCheck();
+            try
+            {
+                server->initializeServer(tokens);
+                server->initializeCheck();
+                _vectorServer.push_back(server);
+            }
+            catch (...)
+            {
+                delete server;
+                throw;
+            }
         }
     }
     catch (const std::exception &e)
     {
+        clearServers();
         std::cerr << e.what() << '\n';
         return (true);
     }
@@ -169,16 +201,33 @@ bool Webserv::splitIntoServers(std::vector<std::string> &tokens)
 void Webserv::registerNewSocket(std::map<Listen, int> &map_socket_fd, Listen *listenConfig, Server *server)
 {
     int serverSocket = createServerSocket(listenConfig->ip, listenConfig->port, MAX_CLIENT);
-    EventData *eventData = addFdToEvent(getEpollFd(), serverSocket, EPOLLIN, SERVER, server);
+    EventData *eventData = NULL;
 
-    server->addEventData(eventData);
-    server->setWebserv(this);
-    addSetEventData(eventData);
+    try
+    {
+        eventData = addFdToEvent(getEpollFd(), serverSocket, EPOLLIN, SERVER, server);
+        server->addEventData(eventData);
+        server->setWebserv(this);
+        addSetEventData(eventData);
 
-    map_socket_fd.insert(std::make_pair(*listenConfig, serverSocket));
-
-    _mapFdToServer.insert(std::make_pair(serverSocket, std::set<Server *>()));
-    _mapFdToServer[serverSocket].insert(server);
+        map_socket_fd.insert(std::make_pair(*listenConfig, serverSocket));
+        _mapFdToServer.insert(std::make_pair(serverSocket, std::set<Server *>()));
+        _mapFdToServer[serverSocket].insert(server);
+    }
+    catch (...)
+    {
+        map_socket_fd.erase(*listenConfig);
+        _mapFdToServer.erase(serverSocket);
+        _setEventData.erase(eventData);
+        if (eventData != NULL)
+        {
+            epoll_ctl(getEpollFd(), EPOLL_CTL_DEL, serverSocket, NULL);
+            server->removeEventData(eventData);
+            delete eventData;
+        }
+        close(serverSocket);
+        throw;
+    }
 }
 
 void Webserv::registerExistingSocket(int serverSocket, Server *server)
@@ -230,23 +279,34 @@ void Webserv::handleNewClient(int server_fd)
     if ((clientSocket = accept(server_fd, NULL, NULL)) == -1)
         throw ExecptionErrorFunction("accept");
 
-    Client *client = new Client;
+    if (_vectorClient.size() >= MAX_LIVE_CLIENTS)
+    {
+        close(clientSocket);
+        std::cerr << "Connection refused: " << MAX_LIVE_CLIENTS << " clients already connected\n";
+        return;
+    }
 
-    _vectorClient.push_back(client);
-
-    client->setClientFd(clientSocket);
-    client->setServerFd(server_fd);
-    client->setWebserv(this);
-
+    Client *client = NULL;
     try
     {
-        EventData *eventData = addFdToEvent(getEpollFd(), clientSocket, EPOLLIN, CLIENT, client);
+        client = new Client;
+        client->setClientFd(clientSocket);
+        client->setServerFd(server_fd);
+        client->setWebserv(this);
+        _vectorClient.push_back(client);
+
+        EventData *eventData = addFdToEvent(getEpollFd(), clientSocket, EPOLLIN | EPOLLRDHUP, CLIENT, client);
         client->setEventData(eventData);
         addSetEventData(eventData);
     }
-    catch (const std::exception &e)
+    catch (...)
     {
-        deleteClient(client);
+        if (client == NULL)
+            close(clientSocket);
+        else if (std::find(_vectorClient.begin(), _vectorClient.end(), client) != _vectorClient.end())
+            deleteClient(client);
+        else
+            delete client;
         throw;
     }
 
@@ -255,7 +315,11 @@ void Webserv::handleNewClient(int server_fd)
 
 void Webserv::deleteClient(Client *client)
 {
-    _vectorClient.erase(std::find(_vectorClient.begin(), _vectorClient.end(), client));
+    std::vector<Client *>::iterator it = std::find(_vectorClient.begin(), _vectorClient.end(), client);
+
+    if (it != _vectorClient.end())
+        _vectorClient.erase(it);
+
     _setEventData.erase(client->getEventData());
     delete client;
 
@@ -264,13 +328,9 @@ void Webserv::deleteClient(Client *client)
 
 void Webserv::handleDisconnect(Client *client)
 {
-    // Already disconnected: no event may be handled for this client anymore
     if (client->isPendingDelete())
         return;
 
-    // Explicit DEL before close: a CGI child forked in the same loop turn
-    // still holds a copy of the fd, so close() alone would leave a stale
-    // registration in epoll
     epoll_ctl(getEpollFd(), EPOLL_CTL_DEL, client->getClientFd(), NULL);
     _setEventData.erase(client->getEventData());
 
@@ -299,7 +359,30 @@ size_t Webserv::largestConfiguredMaxBodySize()
                 largest = server->getLocation(j)->getClientMaxBodySize();
         }
     }
+
+    if (largest == 0)
+        largest = DEFAULT_CLIENT_MAX_BODY_SIZE;
+
     return largest;
+}
+
+RequestState Webserv::checkRequestLimits(const std::string &request)
+{
+    if (request.find("\r\n\r\n") == std::string::npos)
+    {
+        if (request.find("\r\n") == std::string::npos && request.size() > MAX_REQUEST_LINE)
+            return REQUEST_URI_TOO_LONG;
+
+        if (request.size() > MAX_HEADER_SIZE)
+            return REQUEST_HEADER_TOO_LARGE;
+
+        return REQUEST_INCOMPLETE;
+    }
+
+    if (request.size() > largestConfiguredMaxBodySize() + MAX_HEADER_SIZE)
+        return REQUEST_BODY_TOO_LARGE;
+
+    return REQUEST_INCOMPLETE;
 }
 
 RequestState Webserv::readAndCheckRequestCompletion(Client *client)
@@ -318,21 +401,44 @@ RequestState Webserv::readAndCheckRequestCompletion(Client *client)
         return REQUEST_DISCONNECTED;
     }
 
+    client->getEventData()->time = getCurrentTime();
+
     std::string s;
     s.assign(buffer, buffer + bytes);
     client->appendContentRequest(s);
 
-    if (!isCompleteRequest(client->getContentRequest()))
-    {
-        if (isDeclaredBodySizeExceeding(client->getContentRequest(), largestConfiguredMaxBodySize()))
-            return REQUEST_COMPLETE;
-        return REQUEST_INCOMPLETE;
-    }
+    if (isCompleteRequest(client->getContentRequest()))
+        return REQUEST_COMPLETE;
 
-    return REQUEST_COMPLETE;
+    RequestState oversized = checkRequestLimits(client->getContentRequest());
+    if (oversized != REQUEST_INCOMPLETE)
+        return oversized;
+
+    if (isDeclaredBodySizeExceeding(client->getContentRequest(), largestConfiguredMaxBodySize()))
+        return REQUEST_COMPLETE;
+
+    return REQUEST_INCOMPLETE;
 }
 
-// If error code not set, everything else becomes a 500.
+void Webserv::sendImmediateError(Client *client, int statusCode)
+{
+    std::string reason = httpStatusToString(statusCode);
+    std::string body = "<html><body><h1>" + intToString(statusCode) + " " + reason + "</h1></body></html>";
+
+    std::string response = "HTTP/1.1 " + intToString(statusCode) + " " + reason + "\r\n";
+    response += "Content-Type: text/html\r\n";
+    response += "Content-Length: " + sizeToString(body.size()) + "\r\n";
+    response += "Connection: close\r\n\r\n";
+    response += body;
+
+    std::cerr << "Request rejected with status " << statusCode << " (" << reason << ")\n";
+
+    client->clearContentRequest();
+    client->setSendBuffer(response);
+    client->setCloseAfterSend(true);
+    updateClientEpollEvents(client, EPOLLOUT);
+}
+
 static int statusCodeFromException(const std::exception &e)
 {
     std::stringstream stream(e.what());
@@ -356,9 +462,6 @@ void Webserv::applyErrorToResponse(Client *client, const std::exception &e)
         client->getARequest()->getResponseContext()->setStatusCode(statusCode);
 }
 
-// Build the response and arm EPOLLOUT: the actual send happens when epoll
-// tells us the socket is writable (sendPendingDataToClient).
-// Return TRUE if client has been deleted
 bool Webserv::sendResponseToClient(Client *client)
 {
     if (client->isPendingDelete())
@@ -406,6 +509,8 @@ void Webserv::sendPendingDataToClient(Client *client)
         return;
     }
 
+    client->getEventData()->time = getCurrentTime();
+
     client->setSendOffset(client->getSendOffset() + bytes);
     if (client->hasPendingSend())
         return;
@@ -430,11 +535,20 @@ void Webserv::updateClientEpollEvents(Client *client, uint32_t epollEvents)
 {
     struct epoll_event ev;
 
-    ev.events = epollEvents;
+    ev.events = epollEvents | EPOLLRDHUP;
     ev.data.ptr = client->getEventData();
 
     if (epoll_ctl(getEpollFd(), EPOLL_CTL_MOD, client->getClientFd(), &ev) == -1)
         handleDisconnect(client);
+}
+
+static int earlyErrorStatus(RequestState state)
+{
+    if (state == REQUEST_URI_TOO_LONG)
+        return 414;
+    if (state == REQUEST_HEADER_TOO_LARGE)
+        return 431;
+    return 413;
 }
 
 void Webserv::processClient(EventData *eventData)
@@ -450,6 +564,11 @@ void Webserv::processClient(EventData *eventData)
     }
     if (state == REQUEST_INCOMPLETE)
         return;
+    if (state != REQUEST_COMPLETE)
+    {
+        sendImmediateError(client, earlyErrorStatus(state));
+        return;
+    }
 
     if (client->isCGIProcessing())
     {
@@ -461,8 +580,6 @@ void Webserv::processClient(EventData *eventData)
     executeBufferedRequest(client);
 }
 
-// Parse and execute the first request buffered in the client: STATIC
-// requests are answered right away, CGI answers later through readToChild
 void Webserv::executeBufferedRequest(Client *client)
 {
     try
@@ -481,9 +598,7 @@ void Webserv::executeBufferedRequest(Client *client)
 void Webserv::writeToChild(EventData *eventData)
 {
     CGIRequest *cgiRequest = static_cast<CGIRequest *>(eventData->ptr);
-
-    // One write per EPOLLOUT event; once the whole body has been fed to the
-    // child, its stdin pipe is closed and the event is not watched anymore
+    
     if (cgiRequest->sendDataToChild())
         _setEventData.erase(cgiRequest->geteventDataWrite());
 }
@@ -496,10 +611,7 @@ void Webserv::readToChild(EventData *eventData)
     try
     {
         if (!cgiRequest->receivedDataFromChild())
-            return; // pas encore EOF -> on rendra la main à epoll
-
-        // EOF atteint : l'enfant a fermé stdout, il se termine.
-        // Il sera récolté par le waitpid de la boucle principale.
+            return;
         cgiRequest->closeStdoutPipe();
 
         cgiRequest->processDataFromChild();
@@ -517,14 +629,11 @@ void Webserv::readToChild(EventData *eventData)
     sendResponseToClient(client);
 }
 
-static std::string selectCgiInterpreter(const std::string &scriptName)
+static std::string scriptExtension(const std::string &scriptName)
 {
     std::string::size_type pos = scriptName.find_last_of('.');
-    std::string extension = (pos != std::string::npos) ? scriptName.substr(pos) : "";
 
-    if (extension == ".php")
-        return "/usr/bin/php-cgi";
-    return "/usr/bin/python3";
+    return (pos != std::string::npos) ? scriptName.substr(pos) : "";
 }
 
 void Webserv::processClientResponse(Client *client)
@@ -542,8 +651,18 @@ void Webserv::processClientResponse(Client *client)
     else
     {
         CGIRequest *cgiRequest = dynamic_cast<CGIRequest *>(client->getARequest());
-        std::string scriptName = cgiRequest->getRequestContext()->getHttpRequest()->getHeader()->getScriptName();
-        cgiRequest->initializationCGIRequest(selectCgiInterpreter(scriptName));
+        RequestContext *requestContext = cgiRequest->getRequestContext();
+
+        std::string extension = scriptExtension(requestContext->getHttpRequest()->getHeader()->getScriptName());
+        std::string interpreter = requestContext->resolveCgiInterpreter(extension);
+
+        if (interpreter.empty())
+        {
+            std::cerr << "CGI: no interpreter available for '" << extension << "' (see the cgi_pass directive)\n";
+            throw std::runtime_error("502");
+        }
+
+        cgiRequest->initializationCGIRequest(interpreter);
         client->setCGIProcessing(true);
 
         addSetEventData(cgiRequest->geteventDataWrite());
@@ -562,19 +681,30 @@ void Webserv::handleConnection(struct epoll_event &events)
     {
 
     case (SERVER):
-        handleNewClient(eventData->fd);
+        if (events.events & EPOLLIN)
+            handleNewClient(eventData->fd);
         break;
     case (CLIENT):
         if (events.events & EPOLLOUT)
             sendPendingDataToClient(static_cast<Client *>(eventData->ptr));
-        else
+        else if (events.events & EPOLLIN)
             processClient(eventData);
+        else if (events.events & (EPOLLERR | EPOLLHUP | EPOLLRDHUP))
+            handleDisconnect(static_cast<Client *>(eventData->ptr));
         break;
     case (WRITECHILD):
-        writeToChild(eventData);
+        if (events.events & EPOLLOUT)
+            writeToChild(eventData);
+        else if (events.events & (EPOLLERR | EPOLLHUP))
+        {
+            CGIRequest *cgiRequest = static_cast<CGIRequest *>(eventData->ptr);
+            cgiRequest->closeStdinPipe();
+            _setEventData.erase(eventData);
+        }
         break;
     case (READCHILD):
-        readToChild(eventData);
+        if (events.events & (EPOLLIN | EPOLLHUP))
+            readToChild(eventData);
         break;
     }
 }
@@ -601,11 +731,7 @@ void Webserv::listenToWebserv()
         while (waitpid(-1, NULL, WNOHANG) > 0)
             ;
 
-        if (nfds == 0)
-        {
-            checkTimeOut();
-            continue;
-        }
+        checkTimeOutIfNeeded();
 
         for (int i = 0; i < nfds; ++i)
         {
@@ -633,10 +759,10 @@ bool Webserv::initializeConnection()
         if ((epoll_fd = epoll_create(1)) == -1)
             throw ExecptionErrorFunction("epoll_create");
 
+        setEpollFd(epoll_fd);
         if (fcntl(epoll_fd, F_SETFD, FD_CLOEXEC) == -1)
             throw ExecptionErrorFunction("fcntl");
 
-        setEpollFd(epoll_fd);
         initializeSocket();
         listenToWebserv();
     }
@@ -652,55 +778,106 @@ bool Webserv::initializeConnection()
     return res;
 }
 
+void Webserv::checkTimeOutIfNeeded()
+{
+    uint64_t now = getCurrentTime();
+
+    if (now - _lastTimeoutCheck < TIMEOUT_CHECK_INTERVAL)
+        return;
+
+    _lastTimeoutCheck = now;
+    checkTimeOut();
+}
+
+void Webserv::timeOutCGI(CGIRequest *cgiRequest)
+{
+    std::cout << "KILL process\n";
+
+    kill(cgiRequest->getPid(), SIGKILL);
+
+    Client *client = cgiRequest->getRequestContext()->getClient();
+
+    applyErrorToResponse(client, std::runtime_error("504"));
+    client->setCGIProcessing(false);
+
+    _setEventData.erase(cgiRequest->geteventDataWrite());
+    _setEventData.erase(cgiRequest->geteventDataRead());
+
+    // 504 is an error status: the connection closes once it is sent
+    sendResponseToClient(client);
+}
+
+void Webserv::timeOutClient(Client *client)
+{
+    if (client->isCGIProcessing())
+        return;
+
+    if (!client->getContentRequest().empty() && !client->hasPendingSend())
+    {
+        client->getEventData()->time = getCurrentTime();
+        sendImmediateError(client, 408);
+        return;
+    }
+
+    std::cout << "Client timed out\n";
+    handleDisconnect(client);
+}
+
 void Webserv::checkTimeOut()
 {
-    std::set<EventData *>::iterator it;
-    it = _setEventData.begin();
+    uint64_t now = getCurrentTime();
+    std::vector<EventData *> expired;
 
-    for (; it != _setEventData.end(); it++)
+    std::set<EventData *>::iterator it = _setEventData.begin();
+    for (; it != _setEventData.end(); ++it)
     {
-        if (getCurrentTime() > (*it)->time + DELAY && (*it)->type == READCHILD)
-        {
-            std::cout << "KILL process\n";
-            CGIRequest *cgiRequest = static_cast<CGIRequest *>((*it)->ptr);
+        if ((*it)->type == READCHILD && now > (*it)->time + DELAY)
+            expired.push_back(*it);
+        else if ((*it)->type == CLIENT && now > (*it)->time + CLIENT_TIMEOUT)
+            expired.push_back(*it);
+    }
 
-            kill(cgiRequest->getPid(), 9);
+    for (size_t i = 0; i < expired.size(); ++i)
+    {
+        if (_setEventData.find(expired[i]) == _setEventData.end())
+            continue;
 
-            applyErrorToResponse(cgiRequest->getRequestContext()->getClient(), std::runtime_error("504"));
-
-            Client *client = cgiRequest->getRequestContext()->getClient();
-            client->setCGIProcessing(false);
-
-            _setEventData.erase(cgiRequest->geteventDataWrite());
-            _setEventData.erase(cgiRequest->geteventDataRead());
-
-            // 504 is an error status: the connection closes once it is sent
-            sendResponseToClient(client);
-            break;
-        }
+        if (expired[i]->type == READCHILD)
+            timeOutCGI(static_cast<CGIRequest *>(expired[i]->ptr));
+        else
+            timeOutClient(static_cast<Client *>(expired[i]->ptr));
     }
 }
 
 void Webserv::closeConnection()
 {
-    // Close fd client
-    // Close fd server
+    std::vector<Client *>::iterator it_client = _vectorClient.begin();
+    for (; it_client != _vectorClient.end(); ++it_client)
+    {
+        if ((*it_client)->isCGIProcessing())
+        {
+            CGIRequest *cgiRequest = dynamic_cast<CGIRequest *>((*it_client)->getARequest());
+            if (cgiRequest != NULL && cgiRequest->getPid() > 0)
+            {
+                kill(cgiRequest->getPid(), SIGKILL);
+                waitpid(cgiRequest->getPid(), NULL, 0);
+            }
+        }
+        delete *it_client;
+    }
+    _vectorClient.clear();
+
     std::map<int, std::set<Server *> >::iterator it_fd = _mapFdToServer.begin();
     for (; it_fd != _mapFdToServer.end(); ++it_fd)
         close((*it_fd).first);
     _mapFdToServer.clear();
 
-    // Free instance server
-    std::vector<Server *>::iterator it_server = _vectorServer.begin();
-    for (; it_server != _vectorServer.end(); ++it_server)
-        delete (*it_server);
-    _vectorServer.clear();
+    clearServers();
+    _setEventData.clear();
 
-    // Free instance client: the destructor closes the still connected sockets
-    std::vector<Client *>::iterator it_client = _vectorClient.begin();
-    for (; it_client != _vectorClient.end(); ++it_client)
-        delete (*it_client);
-    _vectorClient.clear();
-
-    close(getEpollFd());
+    if (_webserEpoll >= 0)
+    {
+        close(_webserEpoll);
+        _webserEpoll = -1;
+    }
 }

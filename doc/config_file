@@ -9,6 +9,9 @@ server {
 
     autoindex off;
 
+    cgi_pass .py /usr/bin/python3;
+    cgi_pass .php /usr/bin/php-cgi;
+
 	#Commentaire ne pas lire
     client_max_body_size 1024;
 
@@ -48,7 +51,8 @@ server {
 
     location /upload
     {
-        allowed_methods GET POST;
+        allowed_methods GET POST DELETE;
+        autoindex on;
         client_max_body_size 5000000;
     }
 
@@ -105,6 +109,6 @@ server {
 
     location /x {
         allowed_methods GET;
-		error_page 4242 /4242.html;
+		error_page 424 /4242.html;
     }
 }

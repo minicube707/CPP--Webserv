@@ -6,7 +6,7 @@
 /*   By: erpascua <erpascua@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/05/26 17:25:00 by fmotte            #+#    #+#             */
-/*   Updated: 2026/07/28 02:31:56 by erpascua         ###   ########.fr       */
+/*   Updated: 2026/08/10 03:42:07 by erpascua         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -25,6 +25,8 @@
 #include "execption.hpp"
 #include "utilsDuplicate.hpp"
 #include "utilsResponse.hpp"
+
+#include <cctype>
 
 // =====================
 // == Canonical Form  ==
@@ -68,9 +70,32 @@ HeaderContent AResponse::getHeaderContent(void) const
     return _headerContent;
 }
 
+// Header names are case insensitive: they are folded to the conventional
+// capitalised form so "Content-Type" and "content-type" cannot both be emitted,
+// while the response still reads like the one of any HTTP/1.1 server
+static std::string canonicalHeaderName(const std::string &key)
+{
+    std::string canonical = toLowerString(key);
+    bool startOfWord = true;
+
+    for (std::string::size_type i = 0; i < canonical.size(); ++i)
+    {
+        if (startOfWord)
+            canonical[i] = static_cast<char>(std::toupper(static_cast<unsigned char>(canonical[i])));
+
+        startOfWord = (canonical[i] == '-');
+    }
+    return canonical;
+}
+
 void AResponse::addHeaderContent(std::string key, std::string value)
 {
-    _headerContent[key] = value;
+    _headerContent[canonicalHeaderName(key)] = value;
+}
+
+bool AResponse::hasHeader(const std::string &key) const
+{
+    return (_headerContent.find(canonicalHeaderName(key)) != _headerContent.end());
 }
 
 void AResponse::setHeaderContent(HeaderContent headerContent)
@@ -185,11 +210,21 @@ void AResponse::handleSession()
         addSetCookie(cgiCookies[i]);
 }
 
+void AResponse::applyCgiHeaders()
+{
+    const HeaderContent &cgiHeaders = getHttpResponse()->getARequest()->getResponseContext()->getCgiHeaders();
+
+    for (HeaderContent::const_iterator it = cgiHeaders.begin(); it != cgiHeaders.end(); ++it)
+        addHeaderContent(it->first, it->second);
+}
+
 std::string AResponse::makeHttpDate()
 {
     time_t now = time(NULL);
 
     struct tm *gmt = gmtime(&now);
+    if (gmt == NULL)
+        return "Thu, 01 Jan 1970 00:00:00 GMT";
     char buffer[100];
     strftime(buffer, sizeof(buffer), "%a, %d %b %Y %H:%M:%S GMT", gmt);
 
@@ -222,4 +257,19 @@ std::string AResponse::headerToString()
 bool AResponse::containsHtmlTags(const std::string &body)
 {
     return (body.find("<!DOCTYPE html>") != std::string::npos && body.find("</html>") != std::string::npos);
+}
+
+void AResponse::applyContentType(const std::string &body)
+{
+    if (hasHeader("content-type"))
+        return;
+
+    std::string contentType = getHttpResponse()->getARequest()->getResponseContext()->getContentType();
+
+    if (contentType.empty() && containsHtmlTags(body))
+        contentType = "text/html";
+    if (contentType.empty())
+        contentType = "text/plain";
+
+    addHeaderContent("content-type", contentType);
 }

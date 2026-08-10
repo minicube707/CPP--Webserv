@@ -23,7 +23,9 @@ class ResponseContext
     // =====================
     int _statusCode;
     std::string _payload;
+    std::string _contentType;
     std::vector<std::string> _cgiSetCookies;
+    HeaderContent _cgiHeaders;
     ARequest *_ARequest;
 
     ResponseContext();
@@ -43,8 +45,12 @@ class ResponseContext
     void setStatusCode(int statusCode);
     std::string getPayload() const;
     void setPayload(std::string payload);
+    std::string getContentType() const;
+    void setContentType(const std::string &contentType);
     const std::vector<std::string> &getCgiSetCookies() const;
     void addCgiSetCookie(const std::string &setCookieValue);
+    const HeaderContent &getCgiHeaders() const;
+    void addCgiHeader(const std::string &key, const std::string &value);
     ARequest *getARequest(void) const;
     void setARequest(ARequest *arequest);
 };

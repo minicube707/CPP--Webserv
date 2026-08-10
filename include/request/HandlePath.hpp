@@ -3,10 +3,10 @@
 /*                                                        :::      ::::::::   */
 /*   HandlePath.hpp                                     :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: fmotte <fmotte@student.42.fr>              +#+  +:+       +#+        */
+/*   By: erpascua <erpascua@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/07/06 05:37:27 by fmotte            #+#    #+#             */
-/*   Updated: 2026/07/06 06:04:06 by fmotte           ###   ########.fr       */
+/*   Updated: 2026/08/10 03:42:43 by erpascua         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -56,9 +56,10 @@ class HandlePath
 
     std::string createPath(Location *location);
     std::string createPathWithLocation(Location *location);
+    std::string createPathPost(Location *location, const std::string &base);
     std::string createPathWithServer();
     std::string createPathCgi(Location *location);
 
-    void listContentFolder(const std::string &path, std::string &folderContent);
+    void listContentFolder(const std::string &path, std::vector<std::string> &entries);
     std::string createContentAutoIndex(const std::string &path);
 };

@@ -6,7 +6,7 @@
 /*   By: erpascua <erpascua@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/07/05 21:33:57 by fmotte            #+#    #+#             */
-/*   Updated: 2026/08/05 19:27:51 by erpascua         ###   ########.fr       */
+/*   Updated: 2026/08/10 03:27:40 by erpascua         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -16,7 +16,9 @@
 #include "Client.hpp"
 #include "Header.hpp"
 #include "HttpRequest.hpp"
+#include "Location.hpp"
 #include "ResponseContext.hpp"
+#include "Server.hpp"
 
 #include "execption.hpp"
 #include "utilsRequest.hpp"
@@ -113,6 +115,73 @@ void RequestContext::setHttpRequest(HttpRequest *httpRequest)
 }
 
 // =====================
+// ==       CGI       ==
+// =====================
+
+static const std::string knownCgiExtensions[2] = {".py", ".php"};
+
+static std::string firstExecutable(const char *const *candidates, size_t count)
+{
+    for (size_t i = 0; i < count; ++i)
+        if (access(candidates[i], X_OK) == 0)
+            return candidates[i];
+
+    return "";
+}
+
+static std::string defaultInterpreter(const std::string &extension)
+{
+    if (extension == ".py")
+    {
+        static const char *const python[] = {"/usr/bin/python3", "/usr/local/bin/python3", "/bin/python3"};
+        return firstExecutable(python, sizeof(python) / sizeof(python[0]));
+    }
+
+    if (extension == ".php")
+    {
+        static const char *const php[] = {"/usr/bin/php-cgi", "/usr/local/bin/php-cgi", "/bin/php-cgi",
+                                          "/opt/homebrew/bin/php-cgi"};
+        return firstExecutable(php, sizeof(php) / sizeof(php[0]));
+    }
+
+    return "";
+}
+
+bool RequestContext::isCgiExtension(const std::string &extension) const
+{
+    if (extension.empty())
+        return false;
+
+    if (getLocation() != NULL && getLocation()->hasCgiPass(extension))
+        return true;
+
+    if (getServer() != NULL && getServer()->hasCgiPass(extension))
+        return true;
+
+    return (std::find(knownCgiExtensions, knownCgiExtensions + 2, extension) != knownCgiExtensions + 2);
+}
+
+std::string RequestContext::resolveCgiInterpreter(const std::string &extension) const
+{
+    std::string configured;
+
+    if (getLocation() != NULL)
+        configured = getLocation()->getCgiPass(extension);
+    if (configured.empty() && getServer() != NULL)
+        configured = getServer()->getCgiPass(extension);
+
+    if (!configured.empty())
+    {
+        if (access(configured.c_str(), X_OK) == 0)
+            return configured;
+
+        std::cerr << "CGI: " << configured << " is not executable, falling back to the known paths\n";
+    }
+
+    return defaultInterpreter(extension);
+}
+
+// =====================
 // ==     Method      ==
 // =====================
 void RequestContext::initialisationRequestContext()
@@ -163,14 +232,14 @@ Location *RequestContext::findLocation(void)
 {
     Location *location;
     Location *best_location = NULL;
-    int best_score = 100000;
+    int best_score = -1;
     int score;
 
     for (int i = 0; (location = getClient()->getServerPtr()->getLocation(i)) != NULL; ++i)
     {
         score = longestPrefixMatch(getHttpRequest()->getHeader()->getScriptName(), location->getName());
 
-        if (score < best_score)
+        if (score > best_score)
         {
             best_location = location;
             best_score = score;

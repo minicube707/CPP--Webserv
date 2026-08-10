@@ -3,10 +3,10 @@
 /*                                                        :::      ::::::::   */
 /*   Location.cpp                                       :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: fmotte <fmotte@student.42.fr>              +#+  +:+       +#+        */
+/*   By: erpascua <erpascua@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/04/06 15:45:46 by fmotte            #+#    #+#             */
-/*   Updated: 2026/05/27 13:33:49 by fmotte           ###   ########.fr       */
+/*   Updated: 2026/08/10 03:44:14 by erpascua         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -20,8 +20,8 @@
 // =====================
 
 Location::Location()
-    : _name(""), _allowed_methods(), _root(""), _index(""), _auto_index(false), _error_page(HttpErrorPage()),
-      _client_max_body_size(0), _ret(HttpReturn())
+    : _name(""), _allowed_methods(), _root(""), _index(""), _upload_store(""), _cgi_pass(), _auto_index(false),
+      _error_page(HttpErrorPage()), _client_max_body_size(0), _ret(HttpReturn())
 {
 }
 
@@ -40,6 +40,8 @@ Location &Location::operator=(const Location &other)
     _allowed_methods = other._allowed_methods;
     _root = other._root;
     _index = other._index;
+    _upload_store = other._upload_store;
+    _cgi_pass = other._cgi_pass;
     _auto_index = other._auto_index;
     _error_page = other._error_page;
     _client_max_body_size = other._client_max_body_size;
@@ -94,6 +96,34 @@ std::string Location::getRoot(void)
     return _root;
 }
 
+// UPLOAD-STORE
+void Location::setUploadStore(std::string upload_store)
+{
+    _upload_store = upload_store;
+}
+std::string Location::getUploadStore(void)
+{
+    return _upload_store;
+}
+
+// CGI-PASS
+void Location::addCgiPass(const std::string &extension, const std::string &interpreter)
+{
+    _cgi_pass[extension] = interpreter;
+}
+
+std::string Location::getCgiPass(const std::string &extension) const
+{
+    std::map<std::string, std::string>::const_iterator it = _cgi_pass.find(extension);
+
+    return (it == _cgi_pass.end()) ? "" : it->second;
+}
+
+bool Location::hasCgiPass(const std::string &extension) const
+{
+    return (_cgi_pass.find(extension) != _cgi_pass.end());
+}
+
 // AUTO-INDEX
 void Location::setAutoIndex(bool auto_index)
 {
@@ -143,8 +173,10 @@ void Location::initializeLocation(std::vector<std::string> &tokens)
     if (tokens.empty())
         throw ExecptionMissBrace();
 
-    setName(tokens[0]);
-    tokens.erase(tokens.begin());
+    std::string name = popToken(tokens);
+    if (name.empty() || name[0] != '/' || name == "{" || name == "}" || name == ";")
+        throw ExecptionWrongArgument(name);
+    setName(name);
 
     if (tokens.empty())
         throw ExecptionMissBrace();
@@ -164,6 +196,8 @@ void Location::initializeLocation(std::vector<std::string> &tokens)
 
         initializeLocationAllowedMethods(tokens);
         initializeLocationRoot(tokens);
+        initializeLocationUploadStore(tokens);
+        initializeLocationCgiPass(tokens);
         initializeLocationIndex(tokens);
         initializeLocationAutoIndex(tokens);
         initializeLocationClientMaxBodySize(tokens);
@@ -181,28 +215,30 @@ void Location::initializeLocation(std::vector<std::string> &tokens)
 
 void Location::initializeLocationAllowedMethods(std::vector<std::string> &tokens)
 {
-    if (tokens[0] == "allowed_methods")
+    if (frontToken(tokens) != "allowed_methods")
+        return;
+
+    popToken(tokens);
+
+    if (frontToken(tokens) == ";")
+        throw ExecptionWrongArgument("allowed_methods");
+
+    while (frontToken(tokens) != ";")
     {
+        std::string method = popToken(tokens);
 
-        tokens.erase(tokens.begin());
-
-        while (tokens[0] != ";")
-        {
-            if (tokens[0] == "GET")
-                addAllowedMethod(GET);
-            else if (tokens[0] == "POST")
-                addAllowedMethod(POST);
-            else if (tokens[0] == "DELETE")
-                addAllowedMethod(DELETE);
-            else if (tokens[0] == "HEAD")
-                addAllowedMethod(HEAD);
-            else
-                throw ExecptionIllegalMethod(tokens[0]);
-
-            tokens.erase(tokens.begin());
-        }
-        tokens.erase(tokens.begin());
+        if (method == "GET")
+            addAllowedMethod(GET);
+        else if (method == "POST")
+            addAllowedMethod(POST);
+        else if (method == "DELETE")
+            addAllowedMethod(DELETE);
+        else if (method == "HEAD")
+            addAllowedMethod(HEAD);
+        else
+            throw ExecptionIllegalMethod(method);
     }
+    popToken(tokens);
 }
 
 void Location::initializeLocationRoot(std::vector<std::string> &tokens)
@@ -214,18 +250,36 @@ void Location::initializeLocationRoot(std::vector<std::string> &tokens)
 
 void Location::initializeLocationIndex(std::vector<std::string> &tokens)
 {
-    if (tokens[0] == "index")
-    {
-        tokens.erase(tokens.begin());
-        setIndex(tokens[0]);
+    if (frontToken(tokens) != "index")
+        return;
 
-        tokens.erase(tokens.begin());
+    popToken(tokens);
+    std::string index = popToken(tokens);
+    if (index == ";" || index == "{" || index == "}")
+        throw ExecptionWrongArgument("index");
+    setIndex(index);
 
-        if (tokens[0] != ";")
-            throw ExecptionMissSemiColon();
+    if (popToken(tokens) != ";")
+        throw ExecptionMissSemiColon();
+}
 
-        tokens.erase(tokens.begin());
-    }
+void Location::initializeLocationUploadStore(std::vector<std::string> &tokens)
+{
+    std::string uploadStore = parseUploadStoreDirective(tokens);
+
+    if (uploadStore != "")
+        setUploadStore(uploadStore);
+}
+
+void Location::initializeLocationCgiPass(std::vector<std::string> &tokens)
+{
+    std::string extension;
+    std::string interpreter;
+
+    if (!parseCgiPassDirective(tokens, extension, interpreter))
+        return;
+
+    addCgiPass(extension, interpreter);
 }
 
 void Location::initializeLocationAutoIndex(std::vector<std::string> &tokens)

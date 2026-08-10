@@ -47,6 +47,7 @@ class AResponse
     HeaderContent getHeaderContent(void) const;
     void setHeaderContent(HeaderContent headerContent);
     void addHeaderContent(std::string key, std::string value);
+    bool hasHeader(const std::string &key) const;
     void addSetCookie(const std::string &setCookieValue);
 
     // =====================
@@ -57,9 +58,11 @@ class AResponse
     void makeHeader();
     void handleSession();
     void handleConnection();
+    void applyCgiHeaders();
     std::string makeHttpDate();
     std::string headerToString();
     bool containsHtmlTags(const std::string &body);
+    void applyContentType(const std::string &body);
 
     virtual void applyResponse() = 0;
 };

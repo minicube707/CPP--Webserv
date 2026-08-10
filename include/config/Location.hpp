@@ -21,6 +21,8 @@ class Location
     std::set<HttpMethod> _allowed_methods;
     std::string _root;
     std::string _index;
+    std::string _upload_store;
+    std::map<std::string, std::string> _cgi_pass;
     bool _auto_index;
     HttpErrorPage _error_page;
     unsigned int _client_max_body_size;
@@ -58,6 +60,15 @@ class Location
     void setRoot(std::string root);
     std::string getRoot(void);
 
+    // UPLOAD-STORE
+    void setUploadStore(std::string upload_store);
+    std::string getUploadStore(void);
+
+    // CGI-PASS
+    void addCgiPass(const std::string &extension, const std::string &interpreter);
+    std::string getCgiPass(const std::string &extension) const;
+    bool hasCgiPass(const std::string &extension) const;
+
     // AUTO-INDEX
     void setAutoIndex(bool auto_index);
     bool getAutoIndex(void);
@@ -82,6 +93,8 @@ class Location
 
     void initializeLocationAllowedMethods(std::vector<std::string> &tokens);
     void initializeLocationRoot(std::vector<std::string> &tokens);
+    void initializeLocationUploadStore(std::vector<std::string> &tokens);
+    void initializeLocationCgiPass(std::vector<std::string> &tokens);
 
     void initializeLocationIndex(std::vector<std::string> &tokens);
     void initializeLocationAutoIndex(std::vector<std::string> &tokens);

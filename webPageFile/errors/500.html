@@ -1,93 +1,126 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>500 - Internal Server Error</title>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>500 - Internal Server Error</title>
 
-    <style>
-        body {
-            margin: 0;
-            padding: 0;
-            background-color: #111827;
-            color: #f9fafb;
-            font-family: Arial, Helvetica, sans-serif;
+	<style>
+		:root {
+			--bg: #f6f1e7;
+			--surface: #ffffff;
+			--border: #e3d9c6;
+			--text: #2a2520;
+			--muted: #7c6f5d;
+			--accent: #b4342a;
+			--shadow: 0 1px 2px rgba(42, 37, 32, .06), 0 8px 24px rgba(42, 37, 32, .07);
+		}
 
-            display: flex;
-            justify-content: center;
-            align-items: center;
+		@media (prefers-color-scheme: dark) {
+			:root {
+				--bg: #17150f;
+				--surface: #221f17;
+				--border: #3a342a;
+				--text: #f0e9dc;
+				--muted: #a1937c;
+				--accent: #f08a80;
+				--shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px rgba(0, 0, 0, .35);
+			}
+		}
 
-            height: 100vh;
-        }
+		* {
+			box-sizing: border-box;
+		}
 
-        .container {
-            text-align: center;
-            max-width: 600px;
-            padding: 20px;
-        }
+		body {
+			margin: 0;
+			min-height: 100vh;
+			display: flex;
+			align-items: center;
+			justify-content: center;
+			padding: 1.5rem;
 
-        h1 {
-            font-size: 120px;
-            margin: 0;
-            color: #f59e0b;
-        }
+			background: var(--bg);
+			color: var(--text);
+			font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+			line-height: 1.6;
+			-webkit-font-smoothing: antialiased;
+		}
 
-        h2 {
-            margin-top: 10px;
-            font-size: 32px;
-        }
+		.card {
+			width: min(480px, 100%);
+			text-align: center;
+			padding: 2.75rem 2rem 2.25rem;
 
-        p {
-            margin-top: 15px;
-            color: #d1d5db;
-            font-size: 18px;
-            line-height: 1.5;
-        }
+			background: var(--surface);
+			border: 1px solid var(--border);
+			border-radius: 14px;
+			box-shadow: var(--shadow);
+		}
 
-        a {
-            display: inline-block;
-            margin-top: 30px;
-            padding: 12px 24px;
+		.code {
+			margin: 0;
+			font-size: clamp(3.5rem, 14vw, 5rem);
+			font-weight: 800;
+			line-height: 1;
+			letter-spacing: -.04em;
+			color: var(--accent);
+		}
 
-            background-color: #2563eb;
-            color: white;
+		h1 {
+			margin: .6rem 0 0;
+			font-size: 1.25rem;
+			letter-spacing: -.01em;
+		}
 
-            text-decoration: none;
-            border-radius: 8px;
+		p {
+			margin: .7rem 0 0;
+			color: var(--muted);
+			font-size: .93rem;
+		}
 
-            transition: background-color 0.2s ease;
-        }
+		a {
+			display: inline-block;
+			margin-top: 1.8rem;
+			padding: .6rem 1.3rem;
 
-        a:hover {
-            background-color: #1d4ed8;
-        }
+			background: transparent;
+			border: 1px solid var(--border);
+			color: var(--text);
+			font-weight: 600;
+			font-size: .9rem;
+			text-decoration: none;
+			border-radius: 10px;
+			transition: border-color .15s ease;
+		}
 
-        .code {
-            margin-top: 20px;
-            color: #9ca3af;
-            font-size: 14px;
-        }
-    </style>
+		a:hover {
+			border-color: var(--accent);
+		}
+
+		.served {
+			margin-top: 1.7rem;
+			padding-top: 1.1rem;
+			border-top: 1px solid var(--border);
+
+			color: var(--muted);
+			font-size: .76rem;
+			font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+		}
+	</style>
 </head>
 
 <body>
-    <div class="container">
-        <h1>500</h1>
+	<main class="card">
+		<p class="code">500</p>
+		<h1>Internal Server Error</h1>
+		<p>Something went wrong while handling this request. Please try again later.</p>
 
-        <h2>Internal Server Error</h2>
+		<a href="/">Return home</a>
 
-        <p>
-            Something went wrong on the server.
-            Please try again later.
-        </p>
-
-        <a href="/">
-            Return Home
-        </a>
-
-        <div class="code">
-            Error Code: 500
-        </div>
-    </div>
+		<p class="served">served by The Tonton Webserv</p>
+	</main>
 </body>
+
 </html>

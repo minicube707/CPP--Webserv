@@ -1,78 +1,206 @@
 <!DOCTYPE html>
 <html lang="en">
 
-	<head>
-		<meta charset="UTF-8">
-		<title>The Tontons Forkers</title>
-	</head>
-	<style>
-		*
-		{
-			padding: 0;
-			margin: 0;
-			background-color: bisque;
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>The Tontons Forkers' Webserv</title>
+	<link rel="stylesheet" href="/style.css">
+</head>
+
+<body>
+
+	<header class="site">
+		<h1>The Tontons Forkers' Webserv</h1>
+		<p>An HTTP/1.1 server written in C++98</p>
+	</header>
+
+	<main>
+
+		<section class="card">
+			<h2><span class="verb">POST</span>Send some text</h2>
+			<p class="hint">Write something in a file and post it</p>
+
+			<label for="text-name">Filename</label>
+			<input id="text-name" type="text" value="PostContent" spellcheck="false">
+
+			<label for="text-body">File Content</label>
+			<textarea id="text-body" spellcheck="false">Write some text here...</textarea>
+
+			<button id="send-text">Send to /upload/</button>
+		</section>
+
+		<section class="card">
+			<h2><span class="verb">POST</span>Upload a file</h2>
+			<p class="hint">File keeps its name, size & content</p>
+
+			<label for="file-input">File to upload</label>
+			<input id="file-input" type="file">
+
+			<button id="send-file">Upload to /upload/</button>
+		</section>
+
+		<section class="card">
+			<h2><span class="verb">DELETE</span>Remove a file</h2>
+			<p class="hint">Delete a file previously stored in the upload directory</p>
+
+			<label for="del-name">File to delete</label>
+			<input id="del-name" type="text" value="PostContent" spellcheck="false">
+
+			<button id="send-delete">Delete from /upload/</button>
+		</section>
+
+		<section class="card">
+			<h2><span class="verb">GET</span>Fetch a file</h2>
+			<p class="hint">Get and read information from a file</p>
+
+			<label for="get-name">File to read</label>
+			<input id="get-name" type="text" value="PostContent" spellcheck="false">
+
+			<button id="send-get">Read from /upload/</button>
+		</section>
+
+		<section class="card wide">
+			<h2>Explore the server</h2>
+			<p class="hint">Every route below is served by this webserv, straight from its configuration file.</p>
+			<ul class="links">
+				<li><a href="/upload/"><code>/upload/</code><span>Directory listing (autoindex)</span></a></li>
+				<li><a href="/images/"><code>/images/</code><span>Another repository</span></a></li>
+				<li><a href="/cgi.py"><code>/cgi.py</code><span>Python CGI</span></a></li>
+				<li><a href="/cgi.php"><code>/cgi.php</code><span>PHP CGI</span></a></li>
+				<li><a href="/does-not-exist"><code>/does-not-exist</code><span>Custom 404 error page</span></a></li>
+				<li><a href="/admin"><code>/admin</code><span>403 from a return directive</span></a></li>
+				<li><a href="/google"><code>/google</code><span>301 redirection</span></a></li>
+			</ul>
+		</section>
+
+	</main>
+
+	<footer class="site">
+		<p>Webserv powered by fmotte &amp; erpascua</p>
+	</footer>
+
+	<dialog id="result">
+		<div class="head">
+			<span class="badge" id="result-status">200</span>
+			<h3 id="result-title">Response</h3>
+		</div>
+		<pre id="result-body"></pre>
+		<div class="foot">
+			<a id="result-link" class="btn ghost" href="#" target="_blank" hidden>Open resource</a>
+			<button id="result-close">Close</button>
+		</div>
+	</dialog>
+
+	<script>
+		var dialog = document.getElementById('result');
+		var badge = document.getElementById('result-status');
+		var title = document.getElementById('result-title');
+		var output = document.getElementById('result-body');
+		var link = document.getElementById('result-link');
+
+		document.getElementById('result-close').addEventListener('click', function () {
+			dialog.close();
+		});
+
+		var MAX_PREVIEW = 4000;
+
+		function summarize(contentType, body) {
+			if (!body || !body.length)
+				return '(empty body)';
+
+			if (contentType.indexOf('text/html') !== -1) {
+				var parsed = new DOMParser().parseFromString(body, 'text/html');
+				var heading = parsed.querySelector('h1') || parsed.querySelector('title');
+			}
+
+			if (body.length > MAX_PREVIEW)
+				return body.slice(0, MAX_PREVIEW) + '\n\n[... ' + (body.length - MAX_PREVIEW) + ' more bytes]';
+
+			return body;
 		}
 
-		.container
-		{
-			padding: 10px;
+		function show(heading, status, statusText, body, resourceUrl, contentType) {
+			badge.textContent = status + ' ' + statusText;
+			badge.className = 'badge' + (status >= 400 ? ' bad' : '');
+			title.textContent = heading;
+			output.textContent = summarize(contentType || '', body);
+
+			if (resourceUrl && status < 400) {
+				link.href = resourceUrl;
+				link.hidden = false;
+			} else {
+				link.hidden = true;
+			}
+			dialog.showModal();
 		}
 
-		body
-		{
-			text-align: center;
+		function showError(heading, error) {
+			badge.textContent = 'network';
+			badge.className = 'badge bad';
+			title.textContent = heading;
+			output.textContent = String(error);
+			link.hidden = true;
+			dialog.showModal();
 		}
 
-		h1
-		{
-			color: goldenrod;
-			padding: 10px;
+		function targetName(inputId, fallback) {
+			var value = document.getElementById(inputId).value.trim();
+			return encodeURIComponent(value === '' ? fallback : value);
 		}
-	</style>
 
-	<body>
-		<h1>The Tonton Webserv</h1>
-
-		<div class="container">
-			<h2>1. POST -> /upload/PostContent</h2>
-			<form method="POST" action="/upload" enctype="application/x-www-form-urlencoded">
-				<label for="content">Content to send :</label><br>
-				<textarea id="content" name="content" rows="5" cols="50" default=""></textarea><br>
-				<button type="submit">Send <span>(POST)</span> to PostContent</button>
-			</form>
-		</div>
-		
-		<div class="container">
-			<h2>2. GET /upload/PostContent</h2>
-			<p><a href="/upload/PostContent">Get /upload/PostContent <span>(GET)</span></a></p>
-		</div>
-
-		<div class="container">		
-			<h2>3. DELETE /upload/PostContent</h2>
-			<button id="del-btn">Delete /upload/PostContent</button>
-			<pre id="result">[result]</pre>
-		</div>
-
-		<div class="container">
-			<h2>4. Homepage</h2>
-			<p><a href="/">Reload</a></p>
-		</div>
-
-		<script>
-			document.getElementById('del-btn').addEventListener('click', function () {
-				let out = document.getElementById('result');
-				out.textContent = 'DELETING...';
-				fetch('/upload/PostContent', { method: 'DELETE' })
-					.then(function (r) {
-						return r.text().then(function (body) {
-							out.textContent = 'Status: ' + r.status + ' ' + r.statusText + '\n\n' + body;
-						});
-					})
-					.catch(function (err) {
-						out.textContent = 'Erreur reseau : ' + err;
+		function request(heading, url, options, resourceUrl) {
+			fetch(url, options)
+				.then(function (response) {
+					return response.text().then(function (body) {
+						show(heading, response.status, response.statusText, body, resourceUrl,
+							response.headers.get('Content-Type') || '');
 					});
-			});
-		</script>
-	</body>
+				})
+				.catch(function (error) {
+					showError(heading, error);
+				});
+		}
+
+		document.getElementById('send-text').addEventListener('click', function () {
+			var name = targetName('text-name', 'PostContent');
+			var url = '/upload/' + name;
+
+			request('POST ' + url, url, {
+				method: 'POST',
+				headers: { 'Content-Type': 'text/plain' },
+				body: document.getElementById('text-body').value
+			}, url);
+		});
+
+		document.getElementById('send-file').addEventListener('click', function () {
+			var input = document.getElementById('file-input');
+
+			if (!input.files.length) {
+				show('Upload a file', 0, 'no file', 'Pick a file first.');
+				badge.className = 'badge bad';
+				return;
+			}
+
+			var data = new FormData();
+			data.append('file', input.files[0]);
+
+			// no explicit Content-Type: the browser sets the multipart boundary
+			request('POST /upload', '/upload', { method: 'POST', body: data },
+				'/upload/' + encodeURIComponent(input.files[0].name));
+		});
+
+		document.getElementById('send-delete').addEventListener('click', function () {
+			var url = '/upload/' + targetName('del-name', 'PostContent');
+			request('DELETE ' + url, url, { method: 'DELETE' });
+		});
+
+		document.getElementById('send-get').addEventListener('click', function () {
+			var url = '/upload/' + targetName('get-name', 'PostContent');
+			request('GET ' + url, url, { method: 'GET' }, url);
+		});
+	</script>
+
+</body>
 
 </html>

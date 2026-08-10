@@ -15,7 +15,7 @@
 #include "struct.hpp"
 #include "utilsParsing.hpp"
 
-int stop_webserv = 0;
+volatile sig_atomic_t stop_webserv = 0;
 
 int main(int argc, char **argv)
 {
@@ -30,7 +30,15 @@ int main(int argc, char **argv)
         return (1);
 
     std::vector<std::string> tokens;
-    tokens = tokenizeString(content_file);
+    try
+    {
+        tokens = tokenizeString(content_file);
+    }
+    catch (const std::exception &e)
+    {
+        std::cerr << e.what() << '\n';
+        return (1);
+    }
 
     Webserv webser;
     if (webser.initializeWebserv(tokens))

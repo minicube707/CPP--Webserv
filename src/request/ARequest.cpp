@@ -29,10 +29,28 @@ ARequest::ARequest() : _requestContext(NULL), _responseContext(NULL)
 {
 }
 
+
 ARequest::ARequest(const ARequest &other)
-    : _requestContext(new RequestContext(*other._requestContext)),
-      _responseContext(new ResponseContext(*other._responseContext))
+    : _requestContext(NULL), _responseContext(NULL)
 {
+    RequestContext *requestContext = NULL;
+    ResponseContext *responseContext = NULL;
+    try
+    {
+        requestContext = new RequestContext(*other._requestContext);
+        responseContext = new ResponseContext(*other._responseContext);
+    }
+    catch (...)
+    {
+        delete requestContext;
+        delete responseContext;
+        throw;
+    }
+
+    _requestContext = requestContext;
+    _responseContext = responseContext;
+    _requestContext->setARequest(this);
+    _responseContext->setARequest(this);
 }
 
 ARequest::~ARequest()
@@ -76,19 +94,24 @@ void ARequest::setResponseContext(ResponseContext *responseContext)
 // =====================
 int ARequest::initialisationARequest()
 {
+    RequestContext *requestContext = NULL;
+    ResponseContext *responseContext = NULL;
     try
     {
-        RequestContext *requestContext = new RequestContext(this);
-        ResponseContext *responseContext = new ResponseContext(this);
-
-        setRequestContext(requestContext);
-        setResponseContext(responseContext);
+        requestContext = new RequestContext(this);
+        responseContext = new ResponseContext(this);
     }
-    catch (const std::exception &e)
+    catch (...)
     {
-        std::cerr << e.what() << '\n';
-        return 1;
+        delete requestContext;
+        delete responseContext;
+        throw;
     }
+
+    delete _requestContext;
+    delete _responseContext;
+    setRequestContext(requestContext);
+    setResponseContext(responseContext);
     return 0;
 }
 

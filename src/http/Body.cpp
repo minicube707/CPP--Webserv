@@ -6,7 +6,7 @@
 /*   By: erpascua <erpascua@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/05/14 19:53:56 by fmotte            #+#    #+#             */
-/*   Updated: 2026/08/06 19:40:04 by erpascua         ###   ########.fr       */
+/*   Updated: 2026/08/10 04:07:02 by erpascua         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -20,6 +20,7 @@
 
 #include "colors.hpp"
 #include "execption.hpp"
+#include "utilsDuplicate.hpp"
 #include "utilsRequest.hpp"
 
 // =====================
@@ -139,7 +140,7 @@ void Body::configureKeepAlive(const HeaderContent &header)
     HeaderContent::const_iterator connectionIt = header.find("connection");
     HeaderContent::const_iterator itEnd = header.end();
 
-    if (connectionIt != itEnd && connectionIt->second == "close")
+    if (connectionIt != itEnd && toLowerString(connectionIt->second) == "close")
         setKeepAlive(false);
 }
 
@@ -155,7 +156,7 @@ bool Body::handleTransferEncoding(const HeaderContent &header, const std::string
     if (itTransferEncoding == itEnd)
         return false;
 
-    if (itTransferEncoding->second != "chunked")
+    if (toLowerString(itTransferEncoding->second) != "chunked")
         throw std::runtime_error("501");
 
     std::cout << GREEN << "Body treatment method : " << itTransferEncoding->first << " | " << itTransferEncoding->second
@@ -173,9 +174,10 @@ bool Body::parseContentLengthBody(const HeaderContent &header, const std::string
 
     if (itContentLength != itEnd)
     {
-        std::stringstream stream(itContentLength->second);
-        if (!(stream >> _contentLength) || !stream.eof())
+        size_t declaredLength = 0;
+        if (!parseDecimalLength(itContentLength->second, declaredLength))
             throw std::runtime_error("400");
+        setContentLenght(declaredLength);
 
         if (getContentLenght() > initMaxBodySize())
             throw std::runtime_error("413");
@@ -212,8 +214,8 @@ void Body::parseBody(const std::string &headerContent)
     if (parseContentLengthBody(header, headerContent))
         return;
 
-    if (headerContent.find("\r\n\r\n") != std::string::npos)
-        return;
+    if (getHttpRequest()->getHeader()->getMethod() == POST)
+        throw std::runtime_error("411");
 }
 
 void Body::appendBodyBytes(const std::string &data)
@@ -292,7 +294,7 @@ void Body::parseChunkedBody(const std::string &headerContent)
         if (handleLastChunk(headerContent, chunkSize, current))
             return;
 
-        if (current + chunkSize > headerContent.size())
+        if (chunkSize > headerContent.size() - current)
             throw std::runtime_error("400");
 
         appendBodyBytes(headerContent.substr(current, chunkSize));

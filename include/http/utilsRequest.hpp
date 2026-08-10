@@ -15,10 +15,13 @@
 #include "struct.hpp"
 #include <sys/stat.h>
 
-int computeRemainingCost(const std::string &string, size_t min_len, int score);
-int longestPrefixMatch(std::string string1, std::string string2);
+int longestPrefixMatch(std::string uri, std::string location);
 size_t parseChunkSize(const std::string &line);
 std::string returnLastElementPath(std::string path);
+
+std::string percentDecode(const std::string &value);
+std::string normalizeUriPath(const std::string &path);
+std::string stripTrailingSlashes(const std::string &path);
 
 void checkPermisionReadFile(std::string path);
 bool isFinishByFile(std::string path);

@@ -3,10 +3,10 @@
 /*                                                        :::      ::::::::   */
 /*   utilsConnection.hpp                                :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: fmotte <fmotte@student.42.fr>              +#+  +:+       +#+        */
+/*   By: erpascua <erpascua@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/04/11 14:55:35 by fmotte            #+#    #+#             */
-/*   Updated: 2026/07/23 19:02:29 by fmotte           ###   ########.fr       */
+/*   Updated: 2026/08/10 04:10:24 by erpascua         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -15,7 +15,7 @@
 #include "Client.hpp"
 #include "struct.hpp"
 
-extern int stop_webserv;
+extern volatile sig_atomic_t stop_webserv;
 
 class Client;
 

@@ -68,16 +68,25 @@ int createServerSocket(std::string ip_address, unsigned int port_number, unsigne
     if ((serverSocket = socket(AF_INET, SOCK_STREAM, 0)) == -1)
         throw ExecptionErrorFunction("socket");
 
-    sockaddr_in serverAddress = createSocketAddress(ip_address, port_number);
+    try
+    {
+        sockaddr_in serverAddress = createSocketAddress(ip_address, port_number);
 
-    int opt = 1;
-    setsockopt(serverSocket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+        int opt = 1;
+        if (setsockopt(serverSocket, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) == -1)
+            throw ExecptionErrorFunction("setsockopt");
 
-    if (bind(serverSocket, (struct sockaddr *)&serverAddress, sizeof(serverAddress)) == -1)
-        throw ExecptionErrorFunction("bind");
+        if (bind(serverSocket, (struct sockaddr *)&serverAddress, sizeof(serverAddress)) == -1)
+            throw ExecptionErrorFunction("bind");
 
-    if (listen(serverSocket, max_client) == -1)
-        throw ExecptionErrorFunction("listen");
+        if (listen(serverSocket, max_client) == -1)
+            throw ExecptionErrorFunction("listen");
+    }
+    catch (...)
+    {
+        close(serverSocket);
+        throw;
+    }
 
     return serverSocket;
 }

@@ -6,65 +6,127 @@
 /*   By: erpascua <erpascua@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/04/21 13:53:46 by fmotte            #+#    #+#             */
-/*   Updated: 2026/08/06 18:32:16 by erpascua         ###   ########.fr       */
+/*   Updated: 2026/08/10 04:15:18 by erpascua         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "utilsRequest.hpp"
 #include "utilsDuplicate.hpp"
 
-int computeRemainingCost(const std::string &string, size_t min_len, int score)
-{
-    for (size_t i = min_len; i < string.size(); ++i)
-        score += 1;
+#include <limits>
 
-    return score;
+std::string stripTrailingSlashes(const std::string &path)
+{
+    std::string result = path;
+
+    while (result.size() > 1 && result[result.size() - 1] == '/')
+        result.erase(result.size() - 1);
+
+    return result;
 }
 
 int longestPrefixMatch(std::string uri, std::string location)
 {
-    int score = 0;
+    std::string cleanUri = stripTrailingSlashes(uri);
+    std::string cleanLocation = stripTrailingSlashes(location);
 
-    std::string sub_string;
-    std::vector<std::string> token_str1;
-    std::vector<std::string> token_str2;
+    if (cleanLocation.empty())
+        return (-1);
 
-    std::stringstream iss1(uri);
-    while (getline(iss1, sub_string, '/'))
-        token_str1.push_back(sub_string);
+    if (cleanLocation == "/")
+        return (0);
 
-    std::stringstream iss2(location);
-    while (getline(iss2, sub_string, '/'))
-        token_str2.push_back(sub_string);
+    if (cleanUri.compare(0, cleanLocation.size(), cleanLocation) != 0)
+        return (-1);
 
-    size_t i = 0, j = 0;
-    while (i < token_str1.size() || j < token_str2.size())
+    if (cleanUri.size() != cleanLocation.size() && cleanUri[cleanLocation.size()] != '/')
+        return (-1);
+
+    return (static_cast<int>(cleanLocation.size()));
+}
+
+static int hexValue(char c)
+{
+    if (c >= '0' && c <= '9')
+        return (c - '0');
+    if (c >= 'a' && c <= 'f')
+        return (c - 'a' + 10);
+    if (c >= 'A' && c <= 'F')
+        return (c - 'A' + 10);
+    return (-1);
+}
+
+std::string percentDecode(const std::string &value)
+{
+    std::string decoded;
+    decoded.reserve(value.size());
+
+    for (std::string::size_type i = 0; i < value.size(); ++i)
     {
-        if (token_str1.size() == i + 1 &&
-            token_str1[i].find('.') != std::string::npos) // avoid to compare with the file if it exist
+        if (value[i] != '%')
         {
-            ++i;
+            decoded += value[i];
             continue;
         }
 
-        const std::string &s1 = (i < token_str1.size()) ? token_str1[i] : "";
-        const std::string &s2 = (j < token_str2.size()) ? token_str2[j] : "";
+        if (i + 2 >= value.size())
+            throw std::runtime_error("400");
 
-        size_t min_len = std::min(s1.size(), s2.size());
+        int high = hexValue(value[i + 1]);
+        int low = hexValue(value[i + 2]);
+        if (high < 0 || low < 0)
+            throw std::runtime_error("400");
 
-        for (size_t i = 0; i < min_len; ++i)
-        {
-            if (s1[i] != s2[i])
-                score += 1;
-        }
+        char decodedChar = static_cast<char>((high << 4) | low);
+        if (decodedChar == '\0')
+            throw std::runtime_error("400");
 
-        score += computeRemainingCost(s1, min_len, score);
-        score += computeRemainingCost(s2, min_len, score);
-
-        ++i;
-        ++j;
+        decoded += decodedChar;
+        i += 2;
     }
-    return score;
+    return (decoded);
+}
+
+std::string normalizeUriPath(const std::string &path)
+{
+    if (path.empty() || path[0] != '/')
+        throw std::runtime_error("400");
+
+    std::vector<std::string> segments;
+    std::string::size_type current = 0;
+
+    while (current < path.size())
+    {
+        std::string::size_type next = path.find('/', current);
+        if (next == std::string::npos)
+            next = path.size();
+
+        std::string segment = path.substr(current, next - current);
+
+        if (segment == "..")
+        {
+            if (segments.empty())
+                throw std::runtime_error("403");
+            segments.pop_back();
+        }
+        else if (!segment.empty() && segment != ".")
+            segments.push_back(segment);
+
+        current = next + 1;
+    }
+
+    std::string normalized = "/";
+    for (size_t i = 0; i < segments.size(); ++i)
+    {
+        if (i != 0)
+            normalized += '/';
+        normalized += segments[i];
+    }
+
+    if (normalized.size() > 1 && path[path.size() - 1] == '/')
+        normalized += '/';
+
+    return (normalized);
 }
 
 static std::string trimChunkSizeToken(const std::string &token)
@@ -184,7 +246,8 @@ static std::string::size_type chunkedRequestEnd(const std::string &request, std:
         if (chunkSize == 0)
             return (finalChunkEnd(request, current));
 
-        if (current + chunkSize + 2 > request.size())
+        std::string::size_type available = request.size() - current;
+        if (chunkSize > available || available - chunkSize < 2)
             return (std::string::npos);
 
         if (request.substr(current + chunkSize, 2) != "\r\n")
@@ -289,14 +352,21 @@ std::string initSizeToken(const std::string &request, const std::string::size_ty
 
 bool parseDecimalLength(const std::string &value, size_t &contentLength)
 {
-    std::stringstream ss(value);
+    if (value.empty())
+        return (false);
+
     size_t parsed = 0;
+    for (std::string::size_type i = 0; i < value.size(); ++i)
+    {
+        if (value[i] < '0' || value[i] > '9')
+            return (false);
 
-    if (!(ss >> parsed))
-        return (false);
+        size_t digit = static_cast<size_t>(value[i] - '0');
+        if (parsed > (std::numeric_limits<size_t>::max() - digit) / 10)
+            return (false);
 
-    if (!ss.eof())
-        return (false);
+        parsed = parsed * 10 + digit;
+    }
 
     contentLength = parsed;
     return (true);

@@ -6,7 +6,7 @@
 /*   By: erpascua <erpascua@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/04/11 17:21:25 by fmotte            #+#    #+#             */
-/*   Updated: 2026/08/03 20:39:17 by erpascua         ###   ########.fr       */
+/*   Updated: 2026/08/10 03:48:17 by erpascua         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -54,51 +54,68 @@ int readRawFile(const char *filename, std::string &content_file)
 std::vector<std::string> tokenizeString(std::string &content_file)
 {
     std::vector<std::string> tokens;
-    std::string delimiters = " \t\n\0";
-    std::string tmp;
-    size_t startPos = 0;
-    size_t endPos = 0;
+    std::string token;
+    bool inQuote = false;
+    bool inComment = false;
 
-    while ((endPos = content_file.find_first_of(delimiters, startPos)) != std::string::npos)
+    for (std::string::size_type i = 0; i < content_file.size(); ++i)
     {
-        if (endPos != startPos)
+        char c = content_file[i];
+
+        if (inComment)
         {
-            // Skip comment
-            if (content_file[startPos] == '#')
-            {
-                while (content_file[endPos] != '\n')
-                    ++endPos;
-            }
-            else
-                tokens.push_back(content_file.substr(startPos, endPos - startPos));
+            if (c == '\n')
+                inComment = false;
+            continue;
         }
 
-        startPos = endPos + 1;
+        if (inQuote)
+        {
+            token += c;
+            if (c == '"')
+                inQuote = false;
+            continue;
+        }
+
+        if (c == '#')
+        {
+            if (!token.empty())
+            {
+                tokens.push_back(token);
+                token.clear();
+            }
+            inComment = true;
+        }
+        else if (c == '"')
+        {
+            token += c;
+            inQuote = true;
+        }
+        else if (c == ' ' || c == '\t' || c == '\n' || c == '\r')
+        {
+            if (!token.empty())
+            {
+                tokens.push_back(token);
+                token.clear();
+            }
+        }
+        else if (c == '{' || c == '}' || c == ';')
+        {
+            if (!token.empty())
+            {
+                tokens.push_back(token);
+                token.clear();
+            }
+            tokens.push_back(std::string(1, c));
+        }
+        else
+            token += c;
     }
 
-    if (startPos != content_file.length())
-        tokens.push_back(content_file.substr(startPos));
-
-    for (size_t i = 0; i < tokens.size(); ++i)
-    {
-        if (countOccurrences(tokens[i], '"') == 1)
-        {
-            if (i + 1 < tokens.size())
-            {
-                tokens[i].append(" ");
-                tokens[i].append(tokens[i + 1]);
-                tokens.erase(tokens.begin() + i + 1);
-            }
-        }
-        if (*(tokens[i].end() - 1) == ';' && tokens[i].size() != 1)
-        {
-            tokens[i] = tokens[i].substr(0, tokens[i].size() - 1);
-            tokens.insert(tokens.begin() + i + 1, ";");
-            i++;
-        }
-    }
-    // for(size_t i = 0; i < tokens.size(); ++i)
-    //     std::cout << tokens[i] << "\n";
+    if (inQuote)
+        throw ExecptionWrongArgument("unclosed quote");
+    if (!token.empty())
+        tokens.push_back(token);
 
     return tokens;
 }
@@ -106,23 +123,29 @@ std::vector<std::string> tokenizeString(std::string &content_file)
 unsigned int countOccurrences(const std::string &string, const char occ)
 {
     unsigned int nb_occ = 0;
-    unsigned int i = 0;
 
-    while (string[i] != '\0')
-    {
+    for (std::string::size_type i = 0; i < string.size(); ++i)
         if (string[i] == occ)
             ++nb_occ;
-        ++i;
-    }
     return nb_occ;
 }
 
 std::string joinPath(const std::string &string1, const std::string &string2)
 {
-    std::string new_path = string1;
+    if (string1.empty())
+        return string2;
+    if (string2.empty())
+        return string1;
 
-    if (new_path[new_path.length() - 1] != '/' && string2[0] != '/')
+    std::string new_path = string1;
+    bool endsWithSlash = (new_path[new_path.size() - 1] == '/');
+    bool startsWithSlash = (string2[0] == '/');
+
+    if (!endsWithSlash && !startsWithSlash)
         new_path += '/';
+    else if (endsWithSlash && startsWithSlash)
+        new_path.erase(new_path.size() - 1);
+
     new_path += string2;
     return new_path;
 }

@@ -3,10 +3,10 @@
 /*                                                        :::      ::::::::   */
 /*   HttpRequest.cpp                                    :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: fmotte <fmotte@student.42.fr>              +#+  +:+       +#+        */
+/*   By: erpascua <erpascua@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/04/13 13:15:18 by erpascua          #+#    #+#             */
-/*   Updated: 2026/07/22 14:05:48 by fmotte           ###   ########.fr       */
+/*   Updated: 2026/08/10 04:13:16 by erpascua         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -37,9 +37,27 @@ HttpRequest::~HttpRequest()
     delete getBody();
 }
 
+// Deep copy !!
 HttpRequest::HttpRequest(const HttpRequest &other)
-    : _header(new Header(*other._header)), _body(new Body(*other._body)), _requestContext(other._requestContext)
+    : _header(NULL), _body(NULL), _requestContext(other._requestContext)
 {
+    Header *header = NULL;
+    Body *body = NULL;
+    try
+    {
+        header = new Header(*other._header);
+        body = new Body(*other._body);
+    }
+    catch (...)
+    {
+        delete header;
+        delete body;
+        throw;
+    }
+
+    _header = header;
+    _body = body;
+    _body->setHttpRequest(this);
 }
 // =====================
 // == Getter & Setter ==
@@ -88,14 +106,14 @@ void HttpRequest::setBody(Body *body)
 // =====================
 void HttpRequest::initHeader(const std::string &headerContent)
 {
-    Header *header = new Header(); // what if fail ?
+    Header *header = new Header();
     setHeader(header);
     header->initialisationHeader(headerContent);
 }
 
 void HttpRequest::initBody()
 {
-    Body *body = new Body(*this); // what if fail ?
+    Body *body = new Body(*this);
     setBody(body);
     body->initialisationBody();
 }

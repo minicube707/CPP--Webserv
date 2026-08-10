@@ -3,20 +3,24 @@
 /*                                                        :::      ::::::::   */
 /*   GetMethod.cpp                                      :+:      :+:    :+:   */
 /*                                                    +:+ +:+         +:+     */
-/*   By: fmotte <fmotte@student.42.fr>              +#+  +:+       +#+        */
+/*   By: erpascua <erpascua@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/05/12 14:13:06 by fmotte            #+#    #+#             */
-/*   Updated: 2026/07/08 22:05:34 by fmotte           ###   ########.fr       */
+/*   Updated: 2026/08/10 03:58:25 by erpascua         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #include "GetMethod.hpp"
 
+#include "ARequest.hpp"
 #include "HandlePath.hpp"
 #include "HttpRequest.hpp"
+#include "RequestContext.hpp"
+#include "ResponseContext.hpp"
 
 #include "utilsParsing.hpp"
 #include "utilsRequest.hpp"
+#include "utilsResponse.hpp"
 
 // =====================
 // ==       OCF       ==
@@ -50,8 +54,13 @@ std::string GetMethod::applyMethod(Location *location)
     HandlePath handlePath(getHttpRequest());
     std::string path = handlePath.createPath(location);
 
+    ResponseContext *responseContext = getHttpRequest()->getRequestContext()->getARequest()->getResponseContext();
+
     if (handlePath.getIsAutoIndex())
+    {
+        responseContext->setContentType("text/html");
         return handlePath.createContentAutoIndex(path);
+    }
 
     std::string::size_type qpos = path.find('?');
     if (qpos != std::string::npos)
@@ -62,7 +71,8 @@ std::string GetMethod::applyMethod(Location *location)
     checkPermisionReadFile(path);
 
     readRawFile(path.c_str(), contentFile);
-    // std::cout << "\ncontentFile: " << contentFile << "\n";
+
+    responseContext->setContentType(mimeTypeFromPath(path));
 
     return contentFile;
 }

@@ -6,13 +6,15 @@
 /*   By: erpascua <erpascua@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/05/17 17:37:05 by fmotte            #+#    #+#             */
-/*   Updated: 2026/07/13 02:23:51 by erpascua         ###   ########.fr       */
+/*   Updated: 2026/08/10 04:11:57 by erpascua         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
 #pragma once
 
 #include "struct.hpp"
+
+#define MAX_URI_LENGTH 8192
 
 class Header
 {
@@ -64,4 +66,6 @@ class Header
     HttpMethod parseMethodToken(const std::string &method);
     std::string::size_type findEnd(const std::string &headerContent, const std::string &end);
     void sliptUriNQuery(std::string uri);
+    static std::string stripAbsoluteForm(const std::string &uri);
+    static bool isFramingHeader(const std::string &key);
 };

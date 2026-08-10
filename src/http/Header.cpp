@@ -6,7 +6,7 @@
 /*   By: erpascua <erpascua@student.42.fr>          +#+  +:+       +#+        */
 /*                                                +#+#+#+#+#+   +#+           */
 /*   Created: 2026/05/17 17:37:08 by fmotte            #+#    #+#             */
-/*   Updated: 2026/07/13 02:25:14 by erpascua         ###   ########.fr       */
+/*   Updated: 2026/08/10 04:12:38 by erpascua         ###   ########.fr       */
 /*                                                                            */
 /* ************************************************************************** */
 
@@ -15,6 +15,7 @@
 #include "HttpRequest.hpp"
 #include "struct.hpp"
 #include "utilsDuplicate.hpp"
+#include "utilsRequest.hpp"
 
 Header::Header() : _method(NONE), _query(""), _scriptName(""), _protocol(""), _host("")
 {
@@ -75,16 +76,13 @@ std::string Header::getScriptName(void) const
 
 void Header::setScriptName(const std::string &scriptName)
 {
-    if (scriptName.find("../") != std::string::npos)
-        throw std::runtime_error("403");
-
-    if (scriptName[0] != '/')
-        throw std::runtime_error("400");
-
-    if (scriptName.size() > 8192)
+    if (scriptName.size() > MAX_URI_LENGTH)
         throw std::runtime_error("414");
 
-    _scriptName = scriptName;
+    if (scriptName.empty() || scriptName[0] != '/')
+        throw std::runtime_error("400");
+
+    _scriptName = normalizeUriPath(percentDecode(scriptName));
 }
 
 std::string Header::getProtocol(void) const
@@ -107,12 +105,18 @@ HeaderContent Header::getHeaderContent(void) const
 
 void Header::addHeaderContent(std::string key, std::string value)
 {
-    value = trimSpaces(value);
-    value = toLowerString(value);
-
     key = toLowerString(key);
+    value = trimSpaces(value);
+
+    if (isFramingHeader(key) && _headerContent.find(key) != _headerContent.end())
+        throw std::runtime_error("400");
 
     _headerContent[key] = value;
+}
+
+bool Header::isFramingHeader(const std::string &key)
+{
+    return (key == "content-length" || key == "transfer-encoding" || key == "host");
 }
 
 void Header::setHeaderContent(HeaderContent headerContent)
@@ -127,7 +131,7 @@ std::string Header::getHost(void) const
 
 void Header::setHost(const std::string &host)
 {
-    std::string value = trimSpaces(host);
+    std::string value = toLowerString(trimSpaces(host));
 
     std::string::size_type colon = value.find(':');
     if (colon != std::string::npos)
@@ -210,6 +214,10 @@ void Header::parseHeaderContent(const std::string &headerContent)
 
             std::string key = requestLine.substr(0, colon);
             std::string value = requestLine.substr(colon + 1);
+
+            if (key.empty() || key != trimSpaces(key))
+                throw std::runtime_error("400");
+
             addHeaderContent(key, value);
 
             if (toLowerString(key) == "host")
@@ -219,8 +227,24 @@ void Header::parseHeaderContent(const std::string &headerContent)
     }
 }
 
+std::string Header::stripAbsoluteForm(const std::string &uri)
+{
+    const std::string scheme = "http://";
+
+    if (toLowerString(uri).compare(0, scheme.size(), scheme) != 0)
+        return uri;
+
+    std::string::size_type pathStart = uri.find('/', scheme.size());
+    if (pathStart == std::string::npos)
+        return "/";
+
+    return uri.substr(pathStart);
+}
+
 void Header::sliptUriNQuery(std::string uri)
 {
+    uri = stripAbsoluteForm(uri);
+
     std::string query = "";
     std::string scriptName = uri;
     std::string::size_type qpos = uri.find('?');
